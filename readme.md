@@ -3,7 +3,6 @@
 ProgramID: CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT
 
 - read the [whitepaper](./docs/whitepaper.md).
-- read how the engine handles [risk](./docs/risk.md).
 - 14/14 passing kani proofs in [verification](./docs/verification.md).
 - internal [audit](./docs/audit.md).
 - develop on deep_pool and use the test suite with the [sdk](./packages/sdk/readme.md).
