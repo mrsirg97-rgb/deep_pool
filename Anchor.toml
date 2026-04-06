@@ -1,0 +1,22 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+deep_pool = "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT"
+
+[programs.devnet]
+deep_pool = "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT"
+
+[programs.mainnet]
+deep_pool = "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
