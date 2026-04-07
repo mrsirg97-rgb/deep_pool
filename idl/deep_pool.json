@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -846,6 +846,11 @@
       "code": 6012,
       "name": "TokenOutputSlippage",
       "msg": "Token output below minimum (slippage exceeded)"
+    },
+    {
+      "code": 6013,
+      "name": "InsufficientDeposit",
+      "msg": "Pool did not receive expected SOL deposit"
     }
   ],
   "types": [

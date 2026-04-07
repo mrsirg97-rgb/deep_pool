@@ -66,6 +66,18 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
 
     if args.buy {
         // SOL → Token
+        // CPI callers (e.g. torch_market) pre-deposit SOL before invoking swap,
+        // so sol_reserve already includes amount_in. Wallet callers transfer via
+        // System Program below, so sol_reserve is the true pre-swap reserve.
+        let is_wallet = ctx.accounts.user.owner == &anchor_lang::system_program::ID;
+        let base_sol_reserve = if is_wallet {
+            sol_reserve
+        } else {
+            sol_reserve
+                .checked_sub(args.amount_in)
+                .ok_or(DeepPoolError::InsufficientDeposit)?
+        };
+
         // 1. Apply fee on input SOL
         let fee = args.amount_in
             .checked_mul(SWAP_FEE_BPS)
@@ -76,12 +88,12 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
             .checked_sub(fee)
             .ok_or(DeepPoolError::MathOverflow)?;
 
-        // 2. Constant product: tokens_out = (effective_in * token_reserve) / (sol_reserve + effective_in)
+        // 2. Constant product: tokens_out = (effective_in * token_reserve) / (base_sol_reserve + effective_in)
         let tokens_out = (effective_in as u128)
             .checked_mul(token_reserve as u128)
             .ok_or(DeepPoolError::MathOverflow)?
             .checked_div(
-                (sol_reserve as u128)
+                (base_sol_reserve as u128)
                     .checked_add(effective_in as u128)
                     .ok_or(DeepPoolError::MathOverflow)?,
             )
@@ -90,19 +102,21 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         require!(tokens_out >= args.minimum_out, DeepPoolError::SlippageExceeded);
         require!(tokens_out < token_reserve, DeepPoolError::EmptyPool);
 
-        // 3. Transfer SOL from user to pool PDA
-        anchor_lang::system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
-                    from: ctx.accounts.user.to_account_info(),
-                    to: pool_info,
-                },
-            ),
-            args.amount_in,
-        )?;
+        // 3. Transfer SOL from wallet callers via System Program
+        if is_wallet {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.user.to_account_info(),
+                        to: pool_info,
+                    },
+                ),
+                args.amount_in,
+            )?;
+        }
 
-        // 4. Transfer tokens from vault to user (Token-2022 fee applies on user side)
+        // 4. Transfer tokens from vault to user
         token_interface::transfer_checked(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
