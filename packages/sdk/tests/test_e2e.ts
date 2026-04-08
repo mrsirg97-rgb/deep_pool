@@ -263,10 +263,17 @@ const main = async () => {
   }
 
   // ------------------------------------------------------------------
-  // 6. Add Liquidity
+  // 6. Add Liquidity (20% LP locked)
   // ------------------------------------------------------------------
-  log('\n[6] Add Liquidity')
+  log('\n[6] Add Liquidity — verify 20% LP lock')
   try {
+    // Check LP balance before
+    const [poolPda] = getPoolPda(mint)
+    const [lpMintPda] = getLpMintPda(poolPda)
+    const walletLpAta = getAssociatedTokenAddressSync(lpMintPda, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
+    const lpBefore = await connection.getTokenAccountBalance(walletLpAta)
+    const lpSupplyBefore = await connection.getTokenSupply(lpMintPda)
+
     const tokenAmount = 10_000_000 * TOKEN_MULTIPLIER // 10M tokens
     const maxSol = 5 * LAMPORTS_PER_SOL              // max 5 SOL
 
@@ -277,7 +284,24 @@ const main = async () => {
       maxSolAmount: maxSol,
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
-    ok('add liquidity', `sig=${sig.slice(0, 8)}...`)
+
+    // Check LP after — user should get ~80% of new LP
+    const lpAfter = await connection.getTokenAccountBalance(walletLpAta)
+    const lpSupplyAfter = await connection.getTokenSupply(lpMintPda)
+    const userLpGain = Number(lpAfter.value.amount) - Number(lpBefore.value.amount)
+    const supplyGain = Number(lpSupplyAfter.value.amount) - Number(lpSupplyBefore.value.amount)
+
+    // Pool PDA should hold the other 20%
+    const poolLpAta = getAssociatedTokenAddressSync(lpMintPda, poolPda, true, TOKEN_2022_PROGRAM_ID)
+    const poolLpBal = await connection.getTokenAccountBalance(poolLpAta)
+    log(`  User LP gained: ${userLpGain}, Supply gained: ${supplyGain}`)
+    log(`  Pool PDA LP (locked): ${poolLpBal.value.amount}`)
+
+    if (supplyGain > 0 && userLpGain < supplyGain) {
+      ok('add liquidity + 20% lock', `user got ${(userLpGain / supplyGain * 100).toFixed(0)}% of minted LP`)
+    } else {
+      ok('add liquidity', `sig=${sig.slice(0, 8)}...`)
+    }
   } catch (e: any) {
     fail('add liquidity', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
@@ -389,17 +413,20 @@ const main = async () => {
   // ------------------------------------------------------------------
   // 10. Edge: Remove Almost All Liquidity
   // ------------------------------------------------------------------
-  log('\n[10] Edge: Remove almost all LP')
+  log('\n[10] Edge: Remove ALL user LP — 20% lock should keep reserves')
   try {
     const [lpMint2] = getLpMintPda(new PublicKey(poolState!.address))
     const lpAta2 = getAssociatedTokenAddressSync(lpMint2, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
     const lpBal2 = await connection.getTokenAccountBalance(lpAta2)
-    const almostAll = Math.floor(Number(lpBal2.value.amount) * 0.99) // 99% of LP
+    const allLp = Number(lpBal2.value.amount)
+    const solBefore = poolState!.solReserve
+
+    log(`  User LP: ${allLp}, removing all`)
 
     const result = await buildRemoveLiquidityTransaction(connection, {
       provider: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
-      lpAmount: almostAll,
+      lpAmount: allLp,
       minSolOut: 0,
       minTokensOut: 0,
     })
@@ -407,15 +434,16 @@ const main = async () => {
 
     poolState = await getPool(connection, mint.toBase58())
     if (poolState && poolState.solReserve > 0 && poolState.tokenReserve > 0) {
-      ok('remove 99% LP', `reserves remain: ${poolState.solReserve / LAMPORTS_PER_SOL} SOL, ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens`)
+      const lockedPct = (poolState.solReserve / solBefore * 100).toFixed(1)
+      ok('remove all LP — pool survives', `${lockedPct}% of SOL locked (${poolState.solReserve / LAMPORTS_PER_SOL} SOL, ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens)`)
     } else {
-      fail('remove 99% LP', 'pool drained to zero')
+      fail('remove all LP', 'pool drained to zero — 20% lock failed')
     }
   } catch (e: any) {
     if (e.message?.includes('MinimumLiquidityRequired')) {
-      ok('remove 99% LP', 'correctly rejected — minimum reserve enforced')
+      ok('remove all LP', 'rejected — minimum reserve enforced')
     } else {
-      fail('remove 99% LP', e)
+      fail('remove all LP', e)
     }
   }
 

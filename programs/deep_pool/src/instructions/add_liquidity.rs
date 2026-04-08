@@ -49,6 +49,14 @@ pub struct AddLiquidity<'info> {
         associated_token::token_program = token_program,
     )]
     pub provider_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    // Pool PDA's LP account — receives 20% (permanently locked).
+    #[account(
+        mut,
+        associated_token::mint = lp_mint,
+        associated_token::authority = pool,
+        associated_token::token_program = token_program,
+    )]
+    pub pool_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -124,7 +132,19 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
 
     require!(lp_amount > 0, DeepPoolError::ZeroDeposit);
 
-    // 5. Mint LP tokens to provider
+    // 5. Burn 20% of LP — permanently locked in the pool
+    let lp_burn = (lp_amount as u128)
+        .checked_mul(LP_BURN_BPS as u128)
+        .ok_or(DeepPoolError::MathOverflow)?
+        .checked_div(10000)
+        .ok_or(DeepPoolError::MathOverflow)? as u64;
+    let lp_to_provider = lp_amount
+        .checked_sub(lp_burn)
+        .ok_or(DeepPoolError::MathOverflow)?;
+
+    require!(lp_to_provider > 0, DeepPoolError::ZeroDeposit);
+
+    // 6. Mint LP: 80% to provider, 20% to pool PDA (permanently locked)
     let mint_key = ctx.accounts.pool.token_mint;
     let pool_seeds = &[
         POOL_SEED,
@@ -133,6 +153,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
+    // 80% to provider
     token_interface::mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -143,7 +164,21 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
             },
             signer_seeds,
         ),
-        lp_amount,
+        lp_to_provider,
+    )?;
+
+    // 20% to pool PDA — locked forever
+    token_interface::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.lp_mint.to_account_info(),
+                to: ctx.accounts.pool_lp_account.to_account_info(),
+                authority: ctx.accounts.pool.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        lp_burn,
     )?;
 
     Ok(())

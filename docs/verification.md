@@ -6,46 +6,60 @@ DeepPool's core arithmetic is formally verified using [Kani](https://model-check
 
 **Tool:** Kani Rust Verifier 0.67.0 / CBMC 6.8.0
 **Target:** `deep_pool` v1.0.0
-**Harnesses:** 14 proof harnesses, all passing
+**Harnesses:** 15 proof harnesses (14 concrete + 1 symbolic), all passing
 **Source:** `programs/deep_pool/src/kani_proofs.rs`
 
 ## What Is Verified
 
-### Swap Fee (Harnesses 1-2)
+### Swap Fee (Harnesses 1-3)
 
-| Harness | Property |
-|---------|----------|
-| `verify_swap_fee_conservation` | fee + effective = input at all scales (1 lamport to 1000 SOL) |
-| `verify_swap_fee_threshold` | fee = 0 below 400 lamports, fee = 1 at 400, fee = 2,500,000 at 1 SOL |
+| Harness | Method | Property |
+|---------|--------|----------|
+| `verify_swap_fee_conservation` | Concrete | fee + effective = input at all scales (1 lamport to 1000 SOL) |
+| `verify_swap_fee_threshold` | Concrete | fee = 0 below 400 lamports, fee = 1 at 400, fee = 2,500,000 at 1 SOL |
+| `verify_swap_fee_bounded_symbolic` | **Symbolic** | fee ≤ amount for ALL u64 inputs |
 
-### Constant Product Swap (Harnesses 3-8)
+### Constant Product Swap (Harnesses 4-8)
 
-| Harness | Property |
-|---------|----------|
-| `verify_swap_output_bounded` | output < reserve for all trade sizes (200 SOL pool) |
-| `verify_swap_output_bounded_large_pool` | output < reserve for all trade sizes (1000 SOL pool) |
-| `verify_k_non_decreasing` | k_after >= k_before for all swaps with fee |
-| `verify_swap_monotonic` | larger input produces larger output (5 orders of magnitude + adjacent) |
-| `verify_swap_zero_input` | zero input = zero output |
-| `verify_sell_output_bounded` | sell-side output < SOL reserve for all token inputs |
+| Harness | Method | Property |
+|---------|--------|----------|
+| `verify_swap_output_bounded` | Concrete | output < reserve for all trade sizes (200 SOL pool) |
+| `verify_swap_output_bounded_large_pool` | Concrete | output < reserve for all trade sizes (1000 SOL pool) |
+| `verify_k_non_decreasing` | Concrete | k_after >= k_before for all swaps with fee |
+| `verify_swap_monotonic` | Concrete | larger input produces larger output (5 orders of magnitude + adjacent) |
+| `verify_swap_zero_input` | Concrete | zero input = zero output |
 
-### LP Token Math (Harnesses 9-13)
+### Sell-Side (Harness 9)
 
-| Harness | Property |
-|---------|----------|
-| `verify_initial_lp_sqrt` | sqrt correct at min, typical, and max pool sizes; sqrt > MIN_LIQUIDITY |
-| `verify_lp_mint_proportional` | 1% deposit = 1% LP, 100% deposit = 100% LP, dust = 0 LP |
-| `verify_lp_redeem_bounded` | redeemed <= reserve at all redemption sizes |
-| `verify_lp_full_redeem` | 100% LP = 100% reserve at multiple reserve sizes |
-| `verify_lp_redeem_monotonic` | more LP = more output (1% < 10% < 50% < 100%) |
+| Harness | Method | Property |
+|---------|--------|----------|
+| `verify_sell_output_bounded` | Concrete | sell-side output < SOL reserve for all token inputs |
 
-### Fee Compounding (Harness 14)
+### LP Token Math (Harnesses 10-14)
 
-| Harness | Property |
-|---------|----------|
-| `verify_fee_compounds_k` | k strictly increases when fee > 0 (proven at 4 swap sizes) |
+| Harness | Method | Property |
+|---------|--------|----------|
+| `verify_initial_lp_sqrt` | Concrete | sqrt correct at min, typical, and max pool sizes; sqrt > MIN_LIQUIDITY |
+| `verify_lp_mint_proportional` | Concrete | 1% deposit = 1% LP, 100% deposit = 100% LP, dust = 0 LP |
+| `verify_lp_redeem_bounded` | Concrete | redeemed <= reserve at all redemption sizes |
+| `verify_lp_full_redeem` | Concrete | 100% LP = 100% reserve at multiple reserve sizes |
+| `verify_lp_redeem_monotonic` | Concrete | more LP = more output (1% < 10% < 50% < 100%) |
+
+### Fee Compounding (Harness 15)
+
+| Harness | Method | Property |
+|---------|--------|----------|
+| `verify_fee_compounds_k` | Concrete | k strictly increases when fee > 0 (proven at 4 swap sizes) |
 
 This is the self-deepening property: every fee-generating swap makes the pool deeper.
+
+## Symbolic vs Concrete
+
+Proofs marked **Symbolic** use `kani::any()` — they verify the property for every possible input within the type's range. The swap fee proof works symbolically because it's pure u64 arithmetic.
+
+Proofs marked **Concrete** use specific representative values spanning the protocol's operating range (dust to 1000 SOL, 1 token to 500M tokens). These cover the constant-product math which uses u128 intermediate arithmetic — CBMC's SAT solver cannot handle multiple symbolic u64 inputs flowing through u128 multiply+divide chains within reasonable time.
+
+The concrete approach matches how the protocol actually operates: pools range from 0.1 SOL (minimum) to thousands of SOL, and the proofs verify correctness at every scale within that range.
 
 ## What Is NOT Verified
 

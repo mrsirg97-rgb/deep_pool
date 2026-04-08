@@ -1,6 +1,6 @@
 # DeepPool SDK
 
-TypeScript SDK for [DeepPool](https://github.com/mrsirg97-rgb/deep_pool) — an immutable constant-product pool protocol on Solana. 0.25% swap fee, 100% back to liquidity. No protocol extraction.
+TypeScript SDK for [DeepPool](https://github.com/mrsirg97-rgb/deep_pool) — a constant-product pool protocol on Solana. 0.25% swap fee, 100% back to liquidity. 20% of LP permanently locked on every deposit. Pools that only get deeper.
 
 ## Install
 
@@ -25,16 +25,16 @@ Peer dependency: `@solana/web3.js ^1.98.0`
 
 | Function | Description |
 |----------|-------------|
-| `getPool(connection, tokenMint)` | Pool state: reserves, price, swap count, LP supply |
+| `getPool(connection, tokenMint)` | Pool state: reserves, price, swap count |
 | `getSwapQuote(solReserve, tokenReserve, amountIn, buy, transferFeeBps?)` | Expected output, fee, price impact. Client-side — no RPC call |
 
 ### Pool Management
 
 | Function | Description |
 |----------|-------------|
-| `buildCreatePoolTransaction(connection, params)` | Create pool with initial SOL + tokens. Returns LP tokens. One pool per mint. |
-| `buildAddLiquidityTransaction(connection, params)` | Proportional deposit. Receive LP tokens. |
-| `buildRemoveLiquidityTransaction(connection, params)` | Burn LP tokens. Receive proportional SOL + tokens. |
+| `buildCreatePoolTransaction(connection, params)` | Create pool with initial SOL + tokens. 80% LP to creator, 20% locked. One pool per mint. |
+| `buildAddLiquidityTransaction(connection, params)` | Proportional deposit. 80% LP to provider, 20% locked permanently. |
+| `buildRemoveLiquidityTransaction(connection, params)` | Burn LP tokens. Receive proportional SOL + tokens. Pool retains locked LP reserves. |
 
 ### Trading
 
@@ -56,7 +56,7 @@ Peer dependency: `@solana/web3.js ^1.98.0`
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { getPool, getSwapQuote, buildSwapTransaction } from 'deeppoolsdk'
 
-const connection = new Connection('https://api.mainnet-beta.solana.com')
+const connection = new Connection('https://api.devnet.solana.com')
 const mint = 'YOUR_TOKEN_MINT'
 
 // Read pool
@@ -79,7 +79,7 @@ const { transaction } = await buildSwapTransaction(connection, {
   user: walletAddress,
   tokenMint: mint,
   amountIn: 1 * LAMPORTS_PER_SOL,
-  minimumOut: Math.floor(quote.amountOut * 0.95), // 5% slippage
+  minimumOut: Math.floor(quote.amountOut * 0.99), // 1% slippage
   buy: true,
 })
 // sign and send
@@ -87,18 +87,19 @@ const { transaction } = await buildSwapTransaction(connection, {
 
 ## Key Properties
 
+- **20% LP lock** — every deposit permanently locks 20% of LP in the pool PDA. Pools only get deeper.
+- **Self-deepening** — 0.25% swap fee compounds into reserves. K only grows.
 - **Token-2022 native** — no WSOL wrapping
 - **Native SOL** — SOL reserve is pool PDA lamports, not a token account
-- **Self-deepening** — 0.25% fee compounds into reserves. K only grows.
 - **Immutable pools** — no admin, no fee switch, no close
-- **LP tokens** — Token-2022 mint, proportional to pool share, appreciates from fees
-- **Formally verified** — 14 Kani proofs cover swap math, LP math, K invariant
+- **Formally verified** — 16 Kani proofs cover swap math, LP math, K invariant, LP burn
 
 ## Constants
 
 | Parameter | Value |
 |-----------|-------|
 | Swap fee | 0.25% (25 bps) |
+| LP burn | 20% (2000 bps) — locked per deposit |
 | Protocol fee | 0% |
 | Min initial SOL | 0.1 SOL |
 | Min initial tokens | 1 token (6 decimals) |
@@ -115,10 +116,9 @@ npx tsx tests/test_e2e.ts
 
 ## Links
 
-- [DeepPool source](https://github.com/mrsirg97-rgb/deep_pool)
-- [Whitepaper](./docs/whitepaper.md)
-- [Verification](./docs/verification.md)
-- [Audit](./docs/audit.md)
+- [Design](../../docs/design.md)
+- [Verification](../../docs/verification.md)
+- [Audit](../../docs/audit.md)
 - Built for [torch.market](https://torch.market)
 - Program ID: `CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT`
 

@@ -11,6 +11,8 @@ pub const MIN_LIQUIDITY: u64 = 1000;
 pub const MIN_INITIAL_SOL: u64 = 100_000_000; // 0.1 SOL
 // Minimum initial token deposit.
 pub const MIN_INITIAL_TOKENS: u64 = 1_000_000; // 1 token (6 decimals)
+// LP burn rate on add_liquidity: 20% of minted LP is permanently locked.
+pub const LP_BURN_BPS: u64 = 2000;
 // Token-2022 program ID.
 pub const TOKEN_2022_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
     6, 221, 246, 225, 238, 117, 143, 222, 24, 66, 93, 188, 228, 108, 205, 218,

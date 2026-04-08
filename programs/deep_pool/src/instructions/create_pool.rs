@@ -68,7 +68,7 @@ pub struct CreatePool<'info> {
         associated_token::token_program = token_program,
     )]
     pub creator_token_account: InterfaceAccount<'info, TokenAccountInterface>,
-    // Creator's LP token account — receives initial LP tokens.
+    // Creator's LP token account — receives 80% of LP tokens.
     #[account(
         init_if_needed,
         payer = creator,
@@ -77,6 +77,15 @@ pub struct CreatePool<'info> {
         associated_token::token_program = token_program,
     )]
     pub creator_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    // Pool PDA's LP account — holds 20% permanently (PDA can't call remove_liquidity).
+    #[account(
+        init_if_needed,
+        payer = creator,
+        associated_token::mint = lp_mint,
+        associated_token::authority = pool,
+        associated_token::token_program = token_program,
+    )]
+    pub pool_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -133,11 +142,23 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
         .ok_or(DeepPoolError::MathOverflow)?;
     let sqrt = integer_sqrt(product);
     require!(sqrt > MIN_LIQUIDITY as u128, DeepPoolError::InsufficientInitialSol);
-    let lp_to_creator = (sqrt as u64)
+    let lp_total = (sqrt as u64)
         .checked_sub(MIN_LIQUIDITY)
         .ok_or(DeepPoolError::MathOverflow)?;
 
-    // 4. Mint LP tokens to creator
+    // 20% LP burn — permanently locked from day one
+    let lp_burn = (lp_total as u128)
+        .checked_mul(LP_BURN_BPS as u128)
+        .ok_or(DeepPoolError::MathOverflow)?
+        .checked_div(10000)
+        .ok_or(DeepPoolError::MathOverflow)? as u64;
+    let lp_to_creator = lp_total
+        .checked_sub(lp_burn)
+        .ok_or(DeepPoolError::MathOverflow)?;
+
+    require!(lp_to_creator > 0, DeepPoolError::InsufficientInitialSol);
+
+    // 4. Mint LP: 80% to creator, 20% to pool PDA (permanently locked)
     let mint_key = ctx.accounts.token_mint.key();
     let pool_seeds = &[
         POOL_SEED,
@@ -146,17 +167,7 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
-    // Mint MIN_LIQUIDITY to pool PDA (permanently locked — no way to redeem)
-    // This prevents the first-depositor rounding attack.
-    // We mint to the vault since pool PDA doesn't have an LP ATA.
-    // These tokens are unrecoverable since no instruction can burn from pool authority
-    // without the LP being in a burnable account. In practice we just inflate supply
-    // by MIN_LIQUIDITY and nobody holds them — the share dilution is negligible.
-    // Alternative: mint and immediately burn, but that requires a burn destination.
-    // Simplest: just don't mint them. Start LP supply at lp_to_creator.
-    // The MIN_LIQUIDITY subtraction from sqrt already ensures the first depositor
-    // can't round-exploit: they get fewer LP tokens than the geometric mean.
-
+    // 80% to creator
     token_interface::mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -168,6 +179,20 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
             signer_seeds,
         ),
         lp_to_creator,
+    )?;
+
+    // 20% to pool PDA — the PDA can't call remove_liquidity, so these are locked forever
+    token_interface::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.lp_mint.to_account_info(),
+                to: ctx.accounts.pool_lp_account.to_account_info(),
+                authority: ctx.accounts.pool.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        lp_burn,
     )?;
 
     // 5. Initialize pool state

@@ -186,6 +186,7 @@ export const buildCreatePoolTransaction = async (
   const [lpMint] = getLpMintPda(pool)
   const creatorTokenAccount = getAssociatedTokenAddressSync(tokenMint, creator, false, TOKEN_2022_PROGRAM_ID)
   const creatorLpAccount = getAssociatedTokenAddressSync(lpMint, creator, false, TOKEN_2022_PROGRAM_ID)
+  const poolLpAccount = getAssociatedTokenAddressSync(lpMint, pool, true, TOKEN_2022_PROGRAM_ID)
 
   const ix = await buildInstruction('create_pool', {
     creator,
@@ -195,6 +196,7 @@ export const buildCreatePoolTransaction = async (
     lpMint,
     creatorTokenAccount,
     creatorLpAccount,
+    poolLpAccount,
     tokenProgram: TOKEN_2022_PROGRAM_ID,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
@@ -271,6 +273,7 @@ export const buildAddLiquidityTransaction = async (
   const [lpMint] = getLpMintPda(pool)
   const providerTokenAccount = getAssociatedTokenAddressSync(tokenMint, provider, false, TOKEN_2022_PROGRAM_ID)
   const providerLpAccount = getAssociatedTokenAddressSync(lpMint, provider, false, TOKEN_2022_PROGRAM_ID)
+  const poolLpAccount = getAssociatedTokenAddressSync(lpMint, pool, true, TOKEN_2022_PROGRAM_ID)
 
   const ix = await buildInstruction('add_liquidity', {
     provider,
@@ -280,6 +283,7 @@ export const buildAddLiquidityTransaction = async (
     lpMint,
     providerTokenAccount,
     providerLpAccount,
+    poolLpAccount,
     tokenProgram: TOKEN_2022_PROGRAM_ID,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
