@@ -185,7 +185,7 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
             border: '1px solid rgba(6, 182, 212, 0.2)',
             marginBottom: '12px', fontSize: '12px', color: 'var(--accent)',
           }}>
-            20% of LP tokens are permanently locked in the pool. You receive 80%.
+            7.5% of LP tokens are permanently locked in the pool. You receive 92.5%.
           </div>
 
           <button

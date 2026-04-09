@@ -148,7 +148,7 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
 
     // 20% LP burn — permanently locked from day one
     let lp_burn = (lp_total as u128)
-        .checked_mul(LP_BURN_BPS as u128)
+        .checked_mul(LP_LOCK_CREATOR_BPS as u128)
         .ok_or(DeepPoolError::MathOverflow)?
         .checked_div(10000)
         .ok_or(DeepPoolError::MathOverflow)? as u64;

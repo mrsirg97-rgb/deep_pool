@@ -67,7 +67,7 @@ export function HowItWorks() {
               <div>
                 <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--accent)' }}>20% LP Lock</div>
                 <div style={{ color: 'var(--muted)' }}>
-                  On every deposit, 20% of LP tokens are permanently locked in the pool. This liquidity can never be withdrawn — the pool only gets deeper over time.
+                  Pool creators lock 20% of LP permanently. Community LPs lock 7.5%. This liquidity can never be withdrawn — the pool only gets deeper over time.
                 </div>
               </div>
 
@@ -99,7 +99,7 @@ export function HowItWorks() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--muted)' }}>LP lock</span>
-                  <span className="font-mono">20% per deposit</span>
+                  <span className="font-mono">20% creator / 7.5% LP</span>
                 </div>
               </div>
             </div>

@@ -395,19 +395,29 @@ fn verify_swap_fee_bounded_symbolic() {
 
 #[cfg(kani)]
 #[kani::proof]
-fn verify_lp_burn() {
-    // Verify exact 20% burn at representative values
+fn verify_lp_lock_rates() {
     let cases: [u64; 5] = [
-        1000,                   // minimum
-        1_000_000,              // 1 LP token
-        1_000_000_000,          // 1000 LP
-        1_000_000_000_000,      // 1M LP
-        10_000_000_000_000,     // 10M LP
+        1000,
+        1_000_000,
+        1_000_000_000,
+        1_000_000_000_000,
+        10_000_000_000_000,
     ];
+
+    // Creator: 20% locked, 80% to creator
     for lp in cases {
-        let burn = lp * LP_BURN_BPS / FEE_DENOMINATOR;
-        let to_provider = lp - burn;
-        assert!(burn == lp / 5); // exactly 20%
-        assert!(to_provider == lp * 4 / 5); // exactly 80%
+        let lock = lp * LP_LOCK_CREATOR_BPS / FEE_DENOMINATOR;
+        let to_creator = lp - lock;
+        assert!(lock == lp / 5);
+        assert!(to_creator == lp * 4 / 5);
+    }
+
+    // Provider: 7.5% locked, 92.5% to provider
+    for lp in cases {
+        let lock = lp * LP_LOCK_PROVIDER_BPS / FEE_DENOMINATOR;
+        let to_provider = lp - lock;
+        assert!(lock <= lp);
+        assert!(to_provider > lp * 9 / 10); // > 90%
+        assert!(to_provider < lp);           // < 100%
     }
 }

@@ -134,7 +134,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
 
     // 5. Burn 20% of LP — permanently locked in the pool
     let lp_burn = (lp_amount as u128)
-        .checked_mul(LP_BURN_BPS as u128)
+        .checked_mul(LP_LOCK_PROVIDER_BPS as u128)
         .ok_or(DeepPoolError::MathOverflow)?
         .checked_div(10000)
         .ok_or(DeepPoolError::MathOverflow)? as u64;
