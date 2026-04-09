@@ -65,7 +65,7 @@ export function HowItWorks() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--accent)' }}>20% LP Lock</div>
+                <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--accent)' }}>LP Lock</div>
                 <div style={{ color: 'var(--muted)' }}>
                   Pool creators lock 20% of LP permanently. Community LPs lock 7.5%. This liquidity can never be withdrawn — the pool only gets deeper over time.
                 </div>
@@ -74,7 +74,7 @@ export function HowItWorks() {
               <div>
                 <div style={{ fontWeight: 600, marginBottom: '4px' }}>Self-Deepening</div>
                 <div style={{ color: 'var(--muted)' }}>
-                  Every swap compounds fees into reserves. Every LP deposit locks 20%. The pool is a ratchet — depth only increases. More volume means tighter spreads.
+                  Every swap compounds fees into reserves. Every LP deposit after creation locks 7.5%. The pool is a ratchet — depth only increases. More volume means tighter spreads.
                 </div>
               </div>
 

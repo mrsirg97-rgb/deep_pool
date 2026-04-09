@@ -54,7 +54,7 @@ pub struct CreatePool<'info> {
         payer = creator,
         mint::decimals = 6,
         mint::authority = pool,
-        mint::freeze_authority = pool,
+        // No freeze authority — LP tokens can never be frozen
         mint::token_program = token_program,
         seeds = [LP_MINT_SEED, pool.key().as_ref()],
         bump,

@@ -263,9 +263,9 @@ const main = async () => {
   }
 
   // ------------------------------------------------------------------
-  // 6. Add Liquidity (20% LP locked)
+  // 6. Add Liquidity (7.5% LP locked)
   // ------------------------------------------------------------------
-  log('\n[6] Add Liquidity — verify 20% LP lock')
+  log('\n[6] Add Liquidity — verify 7.5% LP lock')
   try {
     // Check LP balance before
     const [poolPda] = getPoolPda(mint)
@@ -298,7 +298,7 @@ const main = async () => {
     log(`  Pool PDA LP (locked): ${poolLpBal.value.amount}`)
 
     if (supplyGain > 0 && userLpGain < supplyGain) {
-      ok('add liquidity + 20% lock', `user got ${(userLpGain / supplyGain * 100).toFixed(0)}% of minted LP`)
+      ok('add liquidity + 7.5% lock', `user got ${(userLpGain / supplyGain * 100).toFixed(0)}% of minted LP`)
     } else {
       ok('add liquidity', `sig=${sig.slice(0, 8)}...`)
     }
@@ -413,7 +413,7 @@ const main = async () => {
   // ------------------------------------------------------------------
   // 10. Edge: Remove Almost All Liquidity
   // ------------------------------------------------------------------
-  log('\n[10] Edge: Remove ALL user LP — 20% lock should keep reserves')
+  log('\n[10] Edge: Remove ALL user LP — 7.5% lock should keep reserves')
   try {
     const [lpMint2] = getLpMintPda(new PublicKey(poolState!.address))
     const lpAta2 = getAssociatedTokenAddressSync(lpMint2, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
@@ -437,7 +437,7 @@ const main = async () => {
       const lockedPct = (poolState.solReserve / solBefore * 100).toFixed(1)
       ok('remove all LP — pool survives', `${lockedPct}% of SOL locked (${poolState.solReserve / LAMPORTS_PER_SOL} SOL, ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens)`)
     } else {
-      fail('remove all LP', 'pool drained to zero — 20% lock failed')
+      fail('remove all LP', 'pool drained to zero — 7.5% lock failed')
     }
   } catch (e: any) {
     if (e.message?.includes('MinimumLiquidityRequired')) {

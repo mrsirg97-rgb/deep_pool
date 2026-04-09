@@ -1,6 +1,6 @@
 [package]
 name = "deep_pool"
-version = "1.0.8"
+version = "1.0.9"
 description = "Immutable constant-product pool protocol"
 edition = "2021"
 

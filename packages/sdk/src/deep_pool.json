@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
