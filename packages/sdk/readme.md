@@ -1,6 +1,6 @@
 # DeepPool SDK
 
-TypeScript SDK for [DeepPool](https://github.com/mrsirg97-rgb/deep_pool) — a constant-product pool protocol on Solana. 0.25% swap fee, 100% back to liquidity. 20% of LP permanently locked on every deposit. Pools that only get deeper.
+TypeScript SDK for [DeepPool](https://github.com/mrsirg97-rgb/deep_pool) — a constant-product pool protocol on Solana. 0.25% swap fee, 100% back to liquidity. Permanent LP locks on every deposit. Pools that only get deeper.
 
 ## Install
 
@@ -32,9 +32,9 @@ Peer dependency: `@solana/web3.js ^1.98.0`
 
 | Function | Description |
 |----------|-------------|
-| `buildCreatePoolTransaction(connection, params)` | Create pool with initial SOL + tokens. 80% LP to creator, 20% locked. One pool per mint. |
-| `buildAddLiquidityTransaction(connection, params)` | Proportional deposit. 80% LP to provider, 20% locked permanently. |
-| `buildRemoveLiquidityTransaction(connection, params)` | Burn LP tokens. Receive proportional SOL + tokens. Pool retains locked LP reserves. |
+| `buildCreatePoolTransaction(connection, params)` | Create pool with initial SOL + tokens. 80% LP to creator, 20% locked permanently. |
+| `buildAddLiquidityTransaction(connection, params)` | Proportional deposit. 92.5% LP to provider, 7.5% locked permanently. |
+| `buildRemoveLiquidityTransaction(connection, params)` | Burn LP tokens. Receive proportional SOL + tokens. Pool retains locked reserves. |
 
 ### Trading
 
@@ -87,19 +87,22 @@ const { transaction } = await buildSwapTransaction(connection, {
 
 ## Key Properties
 
-- **20% LP lock** — every deposit permanently locks 20% of LP in the pool PDA. Pools only get deeper.
+- **LP locks** — creators lock 20%, community LPs lock 7.5%. Permanently held by pool PDA. Pools only get deeper.
 - **Self-deepening** — 0.25% swap fee compounds into reserves. K only grows.
-- **Token-2022 native** — no WSOL wrapping
-- **Native SOL** — SOL reserve is pool PDA lamports, not a token account
-- **Immutable pools** — no admin, no fee switch, no close
-- **Formally verified** — 16 Kani proofs cover swap math, LP math, K invariant, LP burn
+- **No freeze authority** — LP tokens can never be frozen by anyone.
+- **Token-2022 native** — no WSOL wrapping.
+- **Native SOL** — SOL reserve is pool PDA lamports, not a token account.
+- **Immutable pools** — no admin, no fee switch, no close.
+- **No protocol fee** — 0% extraction. All fees stay in the pool.
+- **Formally verified** — 16 Kani proofs cover swap math, LP math, K invariant, LP locks.
 
 ## Constants
 
 | Parameter | Value |
 |-----------|-------|
 | Swap fee | 0.25% (25 bps) |
-| LP burn | 20% (2000 bps) — locked per deposit |
+| Creator LP lock | 20% (2000 bps) |
+| Provider LP lock | 7.5% (750 bps) |
 | Protocol fee | 0% |
 | Min initial SOL | 0.1 SOL |
 | Min initial tokens | 1 token (6 decimals) |

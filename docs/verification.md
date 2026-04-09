@@ -53,6 +53,12 @@ DeepPool's core arithmetic is formally verified using [Kani](https://model-check
 
 This is the self-deepening property: every fee-generating swap makes the pool deeper.
 
+### LP Lock Rates (Harness 16)
+
+| Harness | Method | Property |
+|---------|--------|----------|
+| `verify_lp_lock_rates` | Concrete | Creator: exactly 20%/80% split. Provider: exactly 7.5%/92.5% split. Conservation holds at all scales. |
+
 ## Symbolic vs Concrete
 
 Proofs marked **Symbolic** use `kani::any()` — they verify the property for every possible input within the type's range. The swap fee proof works symbolically because it's pure u64 arithmetic.
