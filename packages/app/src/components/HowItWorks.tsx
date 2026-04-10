@@ -81,7 +81,7 @@ export function HowItWorks() {
               <div>
                 <div style={{ fontWeight: 600, marginBottom: '4px' }}>No Admin</div>
                 <div style={{ color: 'var(--muted)' }}>
-                  Pools are immutable. No fee switch, no pause, no close. Once created, the pool runs forever. 16 Kani formal verification proofs cover all math.
+                  Pools are immutable. No fee switch, no pause, no close. Once created, the pool runs forever. Pools are namespaced — each protocol gets its own isolated pool space. No one can interfere with another protocol's pools. 16 Kani formal verification proofs cover all math.
                 </div>
               </div>
 
