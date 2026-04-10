@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "1.0.8",
+    "version": "2.0.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -43,6 +43,11 @@
                   111,
                   108
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.config",
+                "account": "Pool"
               },
               {
                 "kind": "account",
@@ -276,6 +281,15 @@
           "signer": true
         },
         {
+          "name": "config",
+          "docs": [
+            "Namespace config — must sign. Prevents pool squatting.",
+            "For CPI: a program PDA signed via CpiContext::new_with_signer.",
+            "For wallets: the creator (same key, already signing)."
+          ],
+          "signer": true
+        },
+        {
           "name": "token_mint"
         },
         {
@@ -296,6 +310,10 @@
                   111,
                   108
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
               },
               {
                 "kind": "account",
@@ -593,6 +611,11 @@
               },
               {
                 "kind": "account",
+                "path": "pool.config",
+                "account": "Pool"
+              },
+              {
+                "kind": "account",
                 "path": "pool.token_mint",
                 "account": "Pool"
               }
@@ -783,6 +806,11 @@
                   111,
                   108
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.config",
+                "account": "Pool"
               },
               {
                 "kind": "account",
@@ -1005,6 +1033,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
           {
             "name": "token_mint",
             "type": "pubkey"

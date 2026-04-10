@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL } from '@solana/web3.js'
-import { getPool } from 'deeppoolsdk'
+import { getPoolsForMint } from 'deeppoolsdk'
 import type { PoolState } from 'deeppoolsdk'
 import { Header } from '@/components/Header'
 import { SwapPanel } from '@/components/SwapPanel'
@@ -18,8 +18,8 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
 
   const refresh = async () => {
     try {
-      const p = await getPool(connection, mint)
-      setPool(p)
+      const pools = await getPoolsForMint(connection, mint)
+      setPool(pools.length > 0 ? pools[0] : null) // deepest pool
     } catch (e) {
       console.error('Failed to fetch pool:', e)
     } finally {

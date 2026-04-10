@@ -22,18 +22,22 @@ pub struct CreatePoolArgs {
 pub struct CreatePool<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
+    /// Namespace config — must sign. Prevents pool squatting.
+    /// For CPI: a program PDA signed via CpiContext::new_with_signer.
+    /// For wallets: the creator (same key, already signing).
+    pub config: Signer<'info>,
     // The Token-2022 mint for this pool.
     #[account(
         mint::token_program = token_program,
         constraint = token_mint.to_account_info().owner == &TOKEN_2022_PROGRAM_ID @ DeepPoolError::NotToken2022,
     )]
     pub token_mint: InterfaceAccount<'info, MintInterface>,
-    // Pool state PDA — one per mint.
+    // Pool state PDA — one per config per mint.
     #[account(
         init,
         payer = creator,
         space = Pool::LEN,
-        seeds = [POOL_SEED, token_mint.key().as_ref()],
+        seeds = [POOL_SEED, config.key().as_ref(), token_mint.key().as_ref()],
         bump,
     )]
     pub pool: Account<'info, Pool>,
@@ -159,9 +163,11 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     require!(lp_to_creator > 0, DeepPoolError::InsufficientInitialSol);
 
     // 4. Mint LP: 80% to creator, 20% to pool PDA (permanently locked)
+    let config_key = ctx.accounts.config.key();
     let mint_key = ctx.accounts.token_mint.key();
     let pool_seeds = &[
         POOL_SEED,
+        config_key.as_ref(),
         mint_key.as_ref(),
         &[ctx.bumps.pool],
     ];
@@ -197,6 +203,7 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
 
     // 5. Initialize pool state
     let pool = &mut ctx.accounts.pool;
+    pool.config = ctx.accounts.config.key();
     pool.token_mint = ctx.accounts.token_mint.key();
     pool.token_vault = ctx.accounts.token_vault.key();
     pool.lp_mint = ctx.accounts.lp_mint.key();

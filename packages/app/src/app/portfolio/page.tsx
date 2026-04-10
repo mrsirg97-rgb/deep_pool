@@ -5,7 +5,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
 import Link from 'next/link'
-import { getPool, getPoolPda, getLpMintPda, PROGRAM_ID } from 'deeppoolsdk'
+import { getPoolByAddress, getLpMintPda, PROGRAM_ID } from 'deeppoolsdk'
 import type { PoolState } from 'deeppoolsdk'
 import { Header } from '@/components/Header'
 
@@ -45,17 +45,15 @@ export default function PortfolioPage() {
         // Find all pool accounts to get LP mints
         console.log('Fetching pool accounts...')
         const poolAccounts = await connection.getProgramAccounts(PROGRAM_ID, {
-          filters: [{ dataSize: 129 }],
+          filters: [{ dataSize: 161 }],
         })
         console.log(`Found ${poolAccounts.length} pools`)
 
-        // Build a map of LP mint → token mint
-        const lpMintToTokenMint = new Map<string, string>()
-        for (const { account } of poolAccounts) {
-          const tokenMint = new PublicKey(account.data.subarray(8, 40)).toBase58()
-          const [poolPda] = getPoolPda(new PublicKey(tokenMint))
-          const [lpMint] = getLpMintPda(poolPda)
-          lpMintToTokenMint.set(lpMint.toBase58(), tokenMint)
+        // Build a map of LP mint → pool pubkey
+        const lpMintToPool = new Map<string, PublicKey>()
+        for (const { pubkey } of poolAccounts) {
+          const [lpMint] = getLpMintPda(pubkey)
+          lpMintToPool.set(lpMint.toBase58(), pubkey)
         }
 
         // Match user's token accounts against LP mints
@@ -67,16 +65,15 @@ export default function PortfolioPage() {
 
           if (balance <= 0) continue
 
-          const tokenMint = lpMintToTokenMint.get(mintAddr)
-          if (!tokenMint) continue
+          const poolPubkey = lpMintToPool.get(mintAddr)
+          if (!poolPubkey) continue
 
           // This is an LP token — fetch pool state
-          const pool = await getPool(connection, tokenMint)
+          const pool = await getPoolByAddress(connection, poolPubkey)
           if (!pool) continue
 
           // Get LP supply
-          const [poolPda] = getPoolPda(new PublicKey(tokenMint))
-          const [lpMint] = getLpMintPda(poolPda)
+          const [lpMint] = getLpMintPda(poolPubkey)
           const lpMintInfo = await connection.getTokenSupply(lpMint)
           const lpSupply = Number(lpMintInfo.value.amount)
 

@@ -7,8 +7,8 @@ import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
 import '@solana/wallet-adapter-react-ui/styles.css'
 
 const RPC_ENDPOINTS: Record<string, string> = {
-  devnet: process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com',
-  mainnet: 'https://api.mainnet-beta.solana.com',
+  devnet: 'https://api.devnet.solana.com',
+  mainnet: process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com',
 }
 
 function getNetwork(): string {

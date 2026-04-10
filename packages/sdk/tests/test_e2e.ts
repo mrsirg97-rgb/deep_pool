@@ -155,6 +155,7 @@ const main = async () => {
   try {
     const result = await buildCreatePoolTransaction(connection, {
       creator: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(), // standalone: config = creator wallet
       tokenMint: mint.toBase58(),
       initialTokenAmount: initialTokens,
       initialSolAmount: initialSol,
@@ -171,7 +172,7 @@ const main = async () => {
   // 3. Read Pool State
   // ------------------------------------------------------------------
   log('\n[3] Read Pool')
-  let poolState = await getPool(connection, mint.toBase58())
+  let poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
   if (poolState) {
     log(`  SOL reserve: ${poolState.solReserve / LAMPORTS_PER_SOL} SOL`)
     log(`  Token reserve: ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens`)
@@ -198,6 +199,7 @@ const main = async () => {
 
     const result = await buildSwapTransaction(connection, {
       user: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
       amountIn: 1 * LAMPORTS_PER_SOL,
       minimumOut: Math.floor(quote.amountOut * 0.95), // 5% slippage
@@ -211,7 +213,7 @@ const main = async () => {
   }
 
   // Check K increased
-  poolState = await getPool(connection, mint.toBase58())
+  poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
   if (poolState) {
     const k_after_buy = BigInt(poolState.solReserve) * BigInt(poolState.tokenReserve)
     log(`  K after buy: ${k_after_buy}`)
@@ -236,6 +238,7 @@ const main = async () => {
 
     const result = await buildSwapTransaction(connection, {
       user: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
       amountIn: sellAmount,
       minimumOut: Math.floor(quote.amountOut * 0.95),
@@ -249,7 +252,7 @@ const main = async () => {
   }
 
   // K check after sell
-  poolState = await getPool(connection, mint.toBase58())
+  poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
   if (poolState) {
     const k_after_sell = BigInt(poolState.solReserve) * BigInt(poolState.tokenReserve)
     log(`  K after sell: ${k_after_sell}`)
@@ -268,7 +271,7 @@ const main = async () => {
   log('\n[6] Add Liquidity — verify 7.5% LP lock')
   try {
     // Check LP balance before
-    const [poolPda] = getPoolPda(mint)
+    const [poolPda] = getPoolPda(wallet.publicKey, mint)
     const [lpMintPda] = getLpMintPda(poolPda)
     const walletLpAta = getAssociatedTokenAddressSync(lpMintPda, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
     const lpBefore = await connection.getTokenAccountBalance(walletLpAta)
@@ -279,6 +282,7 @@ const main = async () => {
 
     const result = await buildAddLiquidityTransaction(connection, {
       provider: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
       tokenAmount,
       maxSolAmount: maxSol,
@@ -307,7 +311,7 @@ const main = async () => {
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
   }
 
-  poolState = await getPool(connection, mint.toBase58())
+  poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
   if (poolState) {
     log(`  SOL reserve: ${poolState.solReserve / LAMPORTS_PER_SOL} SOL`)
     log(`  Token reserve: ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens`)
@@ -327,6 +331,7 @@ const main = async () => {
 
     const result = await buildRemoveLiquidityTransaction(connection, {
       provider: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
       lpAmount,
       minSolOut: 0,
@@ -343,7 +348,7 @@ const main = async () => {
   // 8. Multiple Swaps — K Growth Verification
   // ------------------------------------------------------------------
   log('\n[8] Multiple Swaps — K grows every time')
-  poolState = await getPool(connection, mint.toBase58())
+  poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
   let k_prev = BigInt(poolState!.solReserve) * BigInt(poolState!.tokenReserve)
   let k_growth_count = 0
 
@@ -353,6 +358,7 @@ const main = async () => {
       if (isBuy) {
         const result = await buildSwapTransaction(connection, {
           user: wallet.publicKey.toBase58(),
+          config: wallet.publicKey.toBase58(),
           tokenMint: mint.toBase58(),
           amountIn: Math.floor(0.5 * LAMPORTS_PER_SOL),
           minimumOut: 0,
@@ -362,6 +368,7 @@ const main = async () => {
       } else {
         const result = await buildSwapTransaction(connection, {
           user: wallet.publicKey.toBase58(),
+          config: wallet.publicKey.toBase58(),
           tokenMint: mint.toBase58(),
           amountIn: 500_000 * TOKEN_MULTIPLIER,
           minimumOut: 0,
@@ -370,7 +377,7 @@ const main = async () => {
         await signAndSend(connection, wallet, result.transaction)
       }
 
-      poolState = await getPool(connection, mint.toBase58())
+      poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
       const k_now = BigInt(poolState!.solReserve) * BigInt(poolState!.tokenReserve)
       if (k_now >= k_prev) {
         k_growth_count++
@@ -394,6 +401,7 @@ const main = async () => {
   try {
     const result = await buildSwapTransaction(connection, {
       user: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
       amountIn: 100, // 100 lamports — fee = 0
       minimumOut: 0,
@@ -425,6 +433,7 @@ const main = async () => {
 
     const result = await buildRemoveLiquidityTransaction(connection, {
       provider: wallet.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(),
       tokenMint: mint.toBase58(),
       lpAmount: allLp,
       minSolOut: 0,
@@ -432,7 +441,7 @@ const main = async () => {
     })
     await signAndSend(connection, wallet, result.transaction)
 
-    poolState = await getPool(connection, mint.toBase58())
+    poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
     if (poolState && poolState.solReserve > 0 && poolState.tokenReserve > 0) {
       const lockedPct = (poolState.solReserve / solBefore * 100).toFixed(1)
       ok('remove all LP — pool survives', `${lockedPct}% of SOL locked (${poolState.solReserve / LAMPORTS_PER_SOL} SOL, ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens)`)
@@ -486,6 +495,7 @@ const main = async () => {
     // Provider2 adds liquidity
     const addResult = await buildAddLiquidityTransaction(connection, {
       provider: provider2.publicKey.toBase58(),
+      config: wallet.publicKey.toBase58(), // pool was created under wallet's config
       tokenMint: mint.toBase58(),
       tokenAmount: 5_000_000 * TOKEN_MULTIPLIER,
       maxSolAmount: 3 * LAMPORTS_PER_SOL,
@@ -505,6 +515,7 @@ const main = async () => {
     if (p2LpAmount > 0) {
       const removeResult = await buildRemoveLiquidityTransaction(connection, {
         provider: provider2.publicKey.toBase58(),
+        config: wallet.publicKey.toBase58(),
         tokenMint: mint.toBase58(),
         lpAmount: p2LpAmount,
         minSolOut: 0,
@@ -524,7 +535,7 @@ const main = async () => {
   }
 
   // Final state
-  poolState = await getPool(connection, mint.toBase58())
+  poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
   if (poolState) {
     log(`\n  Final state:`)
     log(`    SOL: ${poolState.solReserve / LAMPORTS_PER_SOL} SOL`)

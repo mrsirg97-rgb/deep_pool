@@ -27,8 +27,8 @@ importers:
         specifier: ^1.98.4
         version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       deeppoolsdk:
-        specifier: ^1.0.10
-        version: 1.0.10(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
+        specifier: ^2.0.1
+        version: 2.0.1(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
       next:
         specifier: ^15.1.0
         version: 15.5.14(@babel/core@7.29.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -2394,8 +2394,8 @@ packages:
     resolution: {integrity: sha512-FqUYQ+8o158GyGTrMFJms9qh3CqTKvAqgqsTnkLI8sKu0028orqBhxNMFkFen0zGyg6epACD32pjVk58ngIErQ==}
     engines: {node: '>=0.10'}
 
-  deeppoolsdk@1.0.10:
-    resolution: {integrity: sha512-dw//8Eoaq+J+/9aEQ452uH9FJvAjfvS4ifs1DnuA6zE6c2ih+BgyLAw+/II7QA0kpuHrOrVsICSvLhtwFYeC5g==}
+  deeppoolsdk@2.0.1:
+    resolution: {integrity: sha512-gzqsrGE34Qa86M6FZeU6m4kCm1s4YgyAmqB0qtPMwNdoWSEPT5KA4vEuc1E3sXZ6IgD0+7WF99nzk9EhHlBJvg==}
 
   define-data-property@1.1.4:
     resolution: {integrity: sha512-rBMvIzlpA8v6E+SJZoo++HAYqsLrkg7MSfIinMPFhmkorw7X+dOXVJQs+QT69zGkzMyfDnIMN2Wid1+NbL3T+A==}
@@ -7751,7 +7751,7 @@ snapshots:
 
   decode-uri-component@0.2.2: {}
 
-  deeppoolsdk@1.0.10(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6):
+  deeppoolsdk@2.0.1(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6):
     dependencies:
       '@coral-xyz/anchor': 0.32.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@solana/spl-token': 0.4.14(@solana/web3.js@1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)

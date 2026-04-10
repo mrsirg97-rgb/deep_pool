@@ -57,6 +57,7 @@ export function SwapPanel({ mint, pool, onSwap }: { mint: string; pool: PoolStat
         : 1
       const { transaction } = await buildSwapTransaction(connection, {
         user: wallet.publicKey.toBase58(),
+        config: pool.config,
         tokenMint: mint,
         amountIn: amountLamports,
         minimumOut: Math.max(minOut, 1),

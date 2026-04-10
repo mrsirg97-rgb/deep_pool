@@ -2,6 +2,8 @@ use anchor_lang::prelude::*;
 
 #[account]
 pub struct Pool {
+    // Namespace config — signer-verified at creation, prevents pool squatting.
+    pub config: Pubkey,
     // The Token-2022 mint this pool trades against SOL.
     pub token_mint: Pubkey,
     // Token-2022 vault ATA (owned by this PDA).
@@ -20,6 +22,7 @@ pub struct Pool {
 
 impl Pool {
     pub const LEN: usize = 8   // discriminator
+        + 32  // config
         + 32  // token_mint
         + 32  // token_vault
         + 32  // lp_mint

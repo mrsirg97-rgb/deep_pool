@@ -26,7 +26,7 @@ pub struct Swap<'info> {
     pub user: Signer<'info>,
     #[account(
         mut,
-        seeds = [POOL_SEED, pool.token_mint.as_ref()],
+        seeds = [POOL_SEED, pool.config.as_ref(), pool.token_mint.as_ref()],
         bump = pool.bump,
     )]
     pub pool: Account<'info, Pool>,
@@ -56,9 +56,11 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
     let token_reserve = ctx.accounts.token_vault.amount;
     require!(sol_reserve > 0 && token_reserve > 0, DeepPoolError::EmptyPool);
 
+    let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
     let pool_seeds = &[
         POOL_SEED,
+        config_key.as_ref(),
         mint_key.as_ref(),
         &[ctx.accounts.pool.bump],
     ];

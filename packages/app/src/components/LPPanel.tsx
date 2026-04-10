@@ -24,7 +24,7 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
     if (!wallet.publicKey) return
     const fetchLp = async () => {
       try {
-        const [poolPda] = getPoolPda(new PublicKey(mint))
+        const [poolPda] = getPoolPda(new PublicKey(pool.config), new PublicKey(mint))
         const [lpMint] = getLpMintPda(poolPda)
         const lpAta = getAssociatedTokenAddressSync(lpMint, wallet.publicKey!, false, TOKEN_2022_PID)
         const bal = await connection.getTokenAccountBalance(lpAta)
@@ -52,6 +52,7 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
       const maxSol = Math.ceil(solLamports * 1.05) // 5% buffer
       const { transaction } = await buildAddLiquidityTransaction(connection, {
         provider: wallet.publicKey.toBase58(),
+        config: pool.config,
         tokenMint: mint,
         tokenAmount: tokenRequired,
         maxSolAmount: maxSol,
@@ -77,6 +78,7 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
     try {
       const { transaction } = await buildRemoveLiquidityTransaction(connection, {
         provider: wallet.publicKey.toBase58(),
+        config: pool.config,
         tokenMint: mint,
         lpAmount: lp,
         minSolOut: 1,

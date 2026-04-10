@@ -29,8 +29,8 @@ const FEE_DENOMINATOR = 10000
 // PDA Derivation
 // ============================================================================
 
-export const getPoolPda = (tokenMint: PublicKey): [PublicKey, number] =>
-  PublicKey.findProgramAddressSync([POOL_SEED, tokenMint.toBuffer()], PROGRAM_ID)
+export const getPoolPda = (config: PublicKey, tokenMint: PublicKey): [PublicKey, number] =>
+  PublicKey.findProgramAddressSync([POOL_SEED, config.toBuffer(), tokenMint.toBuffer()], PROGRAM_ID)
 
 export const getVaultPda = (pool: PublicKey): [PublicKey, number] =>
   PublicKey.findProgramAddressSync([VAULT_SEED, pool.toBuffer()], PROGRAM_ID)
@@ -44,6 +44,7 @@ export const getLpMintPda = (pool: PublicKey): [PublicKey, number] =>
 
 export interface PoolState {
   address: string
+  config: string
   tokenMint: string
   tokenVault: string
   lpMint: string
@@ -70,9 +71,11 @@ export interface SwapQuote {
 export const getPool = async (
   connection: Connection,
   tokenMint: string,
+  config: string,
 ): Promise<PoolState | null> => {
   const mint = new PublicKey(tokenMint)
-  const [poolPda] = getPoolPda(mint)
+  const configPk = new PublicKey(config)
+  const [poolPda] = getPoolPda(configPk, mint)
   const coder = new BorshCoder(idl as unknown as Idl)
 
   const info = await connection.getAccountInfo(poolPda)
@@ -80,7 +83,6 @@ export const getPool = async (
 
   const pool = coder.accounts.decode('Pool', info.data) as any
   if (!pool) return null
-  const [vaultPda] = getVaultPda(poolPda)
 
   // SOL reserve = PDA lamports - rent
   const rent = await connection.getMinimumBalanceForRentExemption(info.data.length)
@@ -91,9 +93,7 @@ export const getPool = async (
   try {
     const vaultBalance = await connection.getTokenAccountBalance(new PublicKey(pool.token_vault))
     tokenReserve = Number(vaultBalance.value.amount)
-  } catch {
-    // Vault not found
-  }
+  } catch {}
 
   const tokenDecimals = 6
   const price = tokenReserve > 0
@@ -102,6 +102,7 @@ export const getPool = async (
 
   return {
     address: poolPda.toBase58(),
+    config,
     tokenMint,
     tokenVault: pool.token_vault.toBase58(),
     lpMint: pool.lp_mint.toBase58(),
@@ -112,6 +113,68 @@ export const getPool = async (
     tokenReserve,
     price,
   }
+}
+
+// Get pool by on-chain address (when you have the pool PDA already)
+export const getPoolByAddress = async (
+  connection: Connection,
+  poolAddress: PublicKey,
+): Promise<PoolState | null> => {
+  const coder = new BorshCoder(idl as unknown as Idl)
+  const info = await connection.getAccountInfo(poolAddress)
+  if (!info) return null
+
+  const pool = coder.accounts.decode('Pool', info.data) as any
+  if (!pool) return null
+
+  const rent = await connection.getMinimumBalanceForRentExemption(info.data.length)
+  const solReserve = info.lamports - rent
+
+  let tokenReserve = 0
+  try {
+    const vaultBalance = await connection.getTokenAccountBalance(new PublicKey(pool.token_vault))
+    tokenReserve = Number(vaultBalance.value.amount)
+  } catch {}
+
+  const tokenDecimals = 6
+  const price = tokenReserve > 0
+    ? (solReserve / LAMPORTS_PER_SOL) / (tokenReserve / 10 ** tokenDecimals)
+    : 0
+
+  return {
+    address: poolAddress.toBase58(),
+    config: pool.config.toBase58(),
+    tokenMint: pool.token_mint.toBase58(),
+    tokenVault: pool.token_vault.toBase58(),
+    lpMint: pool.lp_mint.toBase58(),
+    initialSol: Number(pool.initial_sol.toString()),
+    initialTokens: Number(pool.initial_tokens.toString()),
+    totalSwaps: Number(pool.total_swaps.toString()),
+    solReserve,
+    tokenReserve,
+    price,
+  }
+}
+
+// Find all pools for a token mint (returns deepest first)
+export const getPoolsForMint = async (
+  connection: Connection,
+  tokenMint: string,
+): Promise<PoolState[]> => {
+  const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
+    filters: [
+      { dataSize: 161 }, // Pool::LEN with config field
+      { memcmp: { offset: 40, bytes: tokenMint } }, // token_mint at offset 8 (disc) + 32 (config)
+    ],
+  })
+
+  const pools: PoolState[] = []
+  for (const { pubkey } of accounts) {
+    const pool = await getPoolByAddress(connection, pubkey)
+    if (pool) pools.push(pool)
+  }
+
+  return pools.sort((a, b) => b.solReserve - a.solReserve)
 }
 
 // ============================================================================
@@ -130,13 +193,11 @@ export const getSwapQuote = (
   }
 
   if (buy) {
-    // SOL → Token
     const fee = Math.floor((amountIn * SWAP_FEE_BPS) / FEE_DENOMINATOR)
     const effectiveIn = amountIn - fee
     const tokensOut = Math.floor(
       (effectiveIn * tokenReserve) / (solReserve + effectiveIn),
     )
-    // Transfer fee on output (user receives less)
     const transferFee = Math.floor((tokensOut * transferFeeBps) / FEE_DENOMINATOR)
     const netOut = tokensOut - transferFee
 
@@ -146,8 +207,6 @@ export const getSwapQuote = (
 
     return { amountIn, amountOut: netOut, fee, priceImpactPercent: impact, buy }
   } else {
-    // Token → SOL
-    // Transfer fee on input (vault receives less)
     const transferFee = Math.floor((amountIn * transferFeeBps) / FEE_DENOMINATOR)
     const netIn = amountIn - transferFee
     const fee = Math.floor((netIn * SWAP_FEE_BPS) / FEE_DENOMINATOR)
@@ -174,14 +233,16 @@ export const buildCreatePoolTransaction = async (
   connection: Connection,
   params: {
     creator: string
+    config: string // signer-verified namespace (wallet pubkey for standalone, program PDA for CPI)
     tokenMint: string
     initialTokenAmount: number
     initialSolAmount: number
   },
 ): Promise<{ transaction: Transaction; pool: string; lpMint: string }> => {
   const creator = new PublicKey(params.creator)
+  const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
-  const [pool] = getPoolPda(tokenMint)
+  const [pool] = getPoolPda(config, tokenMint)
   const [vault] = getVaultPda(pool)
   const [lpMint] = getLpMintPda(pool)
   const creatorTokenAccount = getAssociatedTokenAddressSync(tokenMint, creator, false, TOKEN_2022_PROGRAM_ID)
@@ -190,6 +251,7 @@ export const buildCreatePoolTransaction = async (
 
   const ix = await buildInstruction('create_pool', {
     creator,
+    config,
     tokenMint,
     pool,
     tokenVault: vault,
@@ -219,6 +281,7 @@ export const buildSwapTransaction = async (
   connection: Connection,
   params: {
     user: string
+    config: string
     tokenMint: string
     amountIn: number
     minimumOut: number
@@ -226,8 +289,9 @@ export const buildSwapTransaction = async (
   },
 ): Promise<{ transaction: Transaction; message: string }> => {
   const user = new PublicKey(params.user)
+  const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
-  const [pool] = getPoolPda(tokenMint)
+  const [pool] = getPoolPda(config, tokenMint)
   const [vault] = getVaultPda(pool)
   const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_2022_PROGRAM_ID)
 
@@ -261,14 +325,16 @@ export const buildAddLiquidityTransaction = async (
   connection: Connection,
   params: {
     provider: string
+    config: string
     tokenMint: string
     tokenAmount: number
     maxSolAmount: number
   },
 ): Promise<{ transaction: Transaction; message: string }> => {
   const provider = new PublicKey(params.provider)
+  const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
-  const [pool] = getPoolPda(tokenMint)
+  const [pool] = getPoolPda(config, tokenMint)
   const [vault] = getVaultPda(pool)
   const [lpMint] = getLpMintPda(pool)
   const providerTokenAccount = getAssociatedTokenAddressSync(tokenMint, provider, false, TOKEN_2022_PROGRAM_ID)
@@ -306,6 +372,7 @@ export const buildRemoveLiquidityTransaction = async (
   connection: Connection,
   params: {
     provider: string
+    config: string
     tokenMint: string
     lpAmount: number
     minSolOut: number
@@ -313,8 +380,9 @@ export const buildRemoveLiquidityTransaction = async (
   },
 ): Promise<{ transaction: Transaction; message: string }> => {
   const provider = new PublicKey(params.provider)
+  const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
-  const [pool] = getPoolPda(tokenMint)
+  const [pool] = getPoolPda(config, tokenMint)
   const [vault] = getVaultPda(pool)
   const [lpMint] = getLpMintPda(pool)
   const providerTokenAccount = getAssociatedTokenAddressSync(tokenMint, provider, false, TOKEN_2022_PROGRAM_ID)
@@ -358,12 +426,13 @@ async function buildInstruction(
 ): Promise<TransactionInstruction> {
   const ix = (coder.instruction as any).encode(name, args)
   const keys = Object.entries(accounts).map(([key, pubkey]) => {
-    const isSigner = key === 'creator' || key === 'provider' || key === 'user'
+    const isSigner = key === 'creator' || key === 'provider' || key === 'user' || key === 'config'
     const isWritable =
       key !== 'tokenProgram' &&
       key !== 'associatedTokenProgram' &&
       key !== 'systemProgram' &&
-      key !== 'tokenMint'
+      key !== 'tokenMint' &&
+      key !== 'config'
     return { pubkey, isSigner, isWritable }
   })
 

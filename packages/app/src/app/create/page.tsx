@@ -25,7 +25,7 @@ export default function CreatePage() {
     try {
       // Check if pool already exists
       const { getPool } = await import('deeppoolsdk')
-      const existing = await getPool(connection, tokenMint)
+      const existing = await getPool(connection, tokenMint, wallet.publicKey!.toBase58())
       if (existing) {
         setStatus(`Pool already exists for this token`)
         setLoading(false)
@@ -33,6 +33,7 @@ export default function CreatePage() {
       }
       const { transaction, pool } = await buildCreatePoolTransaction(connection, {
         creator: wallet.publicKey.toBase58(),
+        config: wallet.publicKey.toBase58(),
         tokenMint,
         initialTokenAmount: Math.floor(parseFloat(tokenAmount) * 1e6),
         initialSolAmount: Math.floor(parseFloat(solAmount) * LAMPORTS_PER_SOL),

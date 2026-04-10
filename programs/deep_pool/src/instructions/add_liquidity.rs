@@ -24,7 +24,7 @@ pub struct AddLiquidity<'info> {
     pub provider: Signer<'info>,
     #[account(
         mut,
-        seeds = [POOL_SEED, pool.token_mint.as_ref()],
+        seeds = [POOL_SEED, pool.config.as_ref(), pool.token_mint.as_ref()],
         bump = pool.bump,
     )]
     pub pool: Account<'info, Pool>,
@@ -145,9 +145,11 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     require!(lp_to_provider > 0, DeepPoolError::ZeroDeposit);
 
     // 6. Mint LP: 80% to provider, 20% to pool PDA (permanently locked)
+    let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
     let pool_seeds = &[
         POOL_SEED,
+        config_key.as_ref(),
         mint_key.as_ref(),
         &[ctx.accounts.pool.bump],
     ];
