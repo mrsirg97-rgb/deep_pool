@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod error;
 pub mod instructions;
+pub mod math;
 pub mod state;
 
 #[cfg(kani)]
@@ -26,7 +27,10 @@ pub mod deep_pool {
         instructions::add_liquidity::handler(ctx, args)
     }
 
-    pub fn remove_liquidity(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Result<()> {
+    pub fn remove_liquidity(
+        ctx: Context<RemoveLiquidity>,
+        args: RemoveLiquidityArgs,
+    ) -> Result<()> {
         instructions::remove_liquidity::handler(ctx, args)
     }
 

@@ -2,13 +2,14 @@ use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{
-        self, Mint as MintInterface, TokenAccount as TokenAccountInterface, TokenInterface,
-        TransferChecked, MintTo,
+        self, Mint as MintInterface, MintTo, TokenAccount as TokenAccountInterface, TokenInterface,
+        TransferChecked,
     },
 };
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::math;
 use crate::state::Pool;
 
 #[derive(AnchorDeserialize, AnchorSerialize)]
@@ -22,9 +23,9 @@ pub struct CreatePoolArgs {
 pub struct CreatePool<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
-    /// Namespace config — must sign. Prevents pool squatting.
-    /// For CPI: a program PDA signed via CpiContext::new_with_signer.
-    /// For wallets: the creator (same key, already signing).
+    // Namespace config — must sign. Prevents pool squatting.
+    // For CPI: a program PDA signed via CpiContext::new_with_signer.
+    // For wallets: the creator (same key, already signing).
     pub config: Signer<'info>,
     // The Token-2022 mint for this pool.
     #[account(
@@ -123,7 +124,10 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     )?;
 
     ctx.accounts.token_vault.reload()?;
-    let net_tokens = ctx.accounts.token_vault.amount
+    let net_tokens = ctx
+        .accounts
+        .token_vault
+        .amount
         .checked_sub(vault_before)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(net_tokens > 0, DeepPoolError::InsufficientInitialTokens);
@@ -144,8 +148,11 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     let product = (args.initial_sol_amount as u128)
         .checked_mul(net_tokens as u128)
         .ok_or(DeepPoolError::MathOverflow)?;
-    let sqrt = integer_sqrt(product);
-    require!(sqrt > MIN_LIQUIDITY as u128, DeepPoolError::InsufficientInitialSol);
+    let sqrt = math::integer_sqrt(product);
+    require!(
+        sqrt > MIN_LIQUIDITY as u128,
+        DeepPoolError::InsufficientInitialSol
+    );
     let lp_total = (sqrt as u64)
         .checked_sub(MIN_LIQUIDITY)
         .ok_or(DeepPoolError::MathOverflow)?;
@@ -159,7 +166,6 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     let lp_to_creator = lp_total
         .checked_sub(lp_burn)
         .ok_or(DeepPoolError::MathOverflow)?;
-
     require!(lp_to_creator > 0, DeepPoolError::InsufficientInitialSol);
 
     // 4. Mint LP: 80% to creator, 20% to pool PDA (permanently locked)
@@ -213,18 +219,4 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     pool.bump = ctx.bumps.pool;
 
     Ok(())
-}
-
-// Integer square root via Newton's method (u128).
-fn integer_sqrt(n: u128) -> u128 {
-    if n == 0 {
-        return 0;
-    }
-    let mut x = n;
-    let mut y = (x + 1) / 2;
-    while y < x {
-        x = y;
-        y = (x + n / x) / 2;
-    }
-    x
 }

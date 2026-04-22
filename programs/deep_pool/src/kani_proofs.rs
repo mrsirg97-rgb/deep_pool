@@ -7,47 +7,7 @@
 //! while verifying correctness at every scale the protocol operates at.
 
 use crate::constants::*;
-
-// ============================================================================
-// Pure math replicas
-// ============================================================================
-
-fn calc_swap_fee(amount: u64) -> Option<u64> {
-    amount.checked_mul(SWAP_FEE_BPS)?.checked_div(FEE_DENOMINATOR)
-}
-
-fn calc_swap_output(effective_in: u64, input_reserve: u64, output_reserve: u64) -> Option<u64> {
-    let numerator = (effective_in as u128).checked_mul(output_reserve as u128)?;
-    let denominator = (input_reserve as u128).checked_add(effective_in as u128)?;
-    Some((numerator.checked_div(denominator)?) as u64)
-}
-
-fn calc_lp_mint(lp_supply: u64, deposit: u64, reserve: u64) -> Option<u64> {
-    let result = (lp_supply as u128)
-        .checked_mul(deposit as u128)?
-        .checked_div(reserve as u128)?;
-    Some(result as u64)
-}
-
-fn calc_lp_redeem(lp_amount: u64, reserve: u64, lp_supply: u64) -> Option<u64> {
-    let result = (lp_amount as u128)
-        .checked_mul(reserve as u128)?
-        .checked_div(lp_supply as u128)?;
-    Some(result as u64)
-}
-
-fn integer_sqrt(n: u128) -> u128 {
-    if n == 0 {
-        return 0;
-    }
-    let mut x = n;
-    let mut y = (x + 1) / 2;
-    while y < x {
-        x = y;
-        y = (x + n / x) / 2;
-    }
-    x
-}
+use crate::math::*;
 
 // ============================================================================
 // 1. Swap Fee
@@ -58,12 +18,12 @@ fn integer_sqrt(n: u128) -> u128 {
 fn verify_swap_fee_conservation() {
     // Test across range: dust, small, medium, large
     let amounts: [u64; 6] = [
-        1,                      // 1 lamport
-        399,                    // just below fee threshold
-        400,                    // exact threshold (fee = 1)
-        1_000_000_000,          // 1 SOL
-        100_000_000_000,        // 100 SOL
-        1_000_000_000_000,      // 1000 SOL
+        1,                 // 1 lamport
+        399,               // just below fee threshold
+        400,               // exact threshold (fee = 1)
+        1_000_000_000,     // 1 SOL
+        100_000_000_000,   // 100 SOL
+        1_000_000_000_000, // 1000 SOL
     ];
 
     for amount in amounts {
@@ -99,15 +59,15 @@ fn verify_swap_fee_threshold() {
 #[cfg(kani)]
 #[kani::proof]
 fn verify_swap_output_bounded() {
-    let pool_sol: u64 = 200_000_000_000;        // 200 SOL
-    let pool_tokens: u64 = 150_000_000_000_000;  // 150M tokens
+    let pool_sol: u64 = 200_000_000_000; // 200 SOL
+    let pool_tokens: u64 = 150_000_000_000_000; // 150M tokens
 
     let inputs: [u64; 5] = [
-        1_000_000,              // 0.001 SOL
-        100_000_000,            // 0.1 SOL
-        1_000_000_000,          // 1 SOL
-        50_000_000_000,         // 50 SOL
-        199_000_000_000,        // 199 SOL (nearly all reserves)
+        1_000_000,       // 0.001 SOL
+        100_000_000,     // 0.1 SOL
+        1_000_000_000,   // 1 SOL
+        50_000_000_000,  // 50 SOL
+        199_000_000_000, // 199 SOL (nearly all reserves)
     ];
 
     for input in inputs {
@@ -120,13 +80,13 @@ fn verify_swap_output_bounded() {
 #[cfg(kani)]
 #[kani::proof]
 fn verify_swap_output_bounded_large_pool() {
-    let pool_sol: u64 = 1_000_000_000_000;      // 1000 SOL
-    let pool_tokens: u64 = 500_000_000_000_000;  // 500M tokens
+    let pool_sol: u64 = 1_000_000_000_000; // 1000 SOL
+    let pool_tokens: u64 = 500_000_000_000_000; // 500M tokens
 
     let inputs: [u64; 3] = [
-        1_000_000_000,          // 1 SOL
-        100_000_000_000,        // 100 SOL
-        500_000_000_000,        // 500 SOL
+        1_000_000_000,   // 1 SOL
+        100_000_000_000, // 100 SOL
+        500_000_000_000, // 500 SOL
     ];
 
     for input in inputs {
@@ -145,11 +105,11 @@ fn verify_k_non_decreasing() {
 
     // Test at multiple swap sizes
     let swaps: [u64; 5] = [
-        400,                    // minimum fee-generating swap
-        1_000_000_000,          // 1 SOL
-        10_000_000_000,         // 10 SOL
-        50_000_000_000,         // 50 SOL
-        100_000_000_000,        // 100 SOL
+        400,             // minimum fee-generating swap
+        1_000_000_000,   // 1 SOL
+        10_000_000_000,  // 10 SOL
+        50_000_000_000,  // 50 SOL
+        100_000_000_000, // 100 SOL
     ];
 
     for sol_in in swaps {
@@ -263,10 +223,10 @@ fn verify_lp_redeem_bounded() {
     let reserve: u64 = 200_000_000_000;
 
     let amounts: [u64; 4] = [
-        1,                      // 1 LP token
-        lp_supply / 100,        // 1%
-        lp_supply / 2,          // 50%
-        lp_supply,              // 100%
+        1,               // 1 LP token
+        lp_supply / 100, // 1%
+        lp_supply / 2,   // 50%
+        lp_supply,       // 100%
     ];
 
     for lp in amounts {
@@ -317,10 +277,10 @@ fn verify_fee_compounds_k() {
 
     // Every swap with fee > 0 must strictly increase K
     let swaps: [u64; 4] = [
-        400,                    // minimum fee = 1
-        1_000_000_000,          // 1 SOL
-        10_000_000_000,         // 10 SOL
-        100_000_000_000,        // 100 SOL
+        400,             // minimum fee = 1
+        1_000_000_000,   // 1 SOL
+        10_000_000_000,  // 10 SOL
+        100_000_000_000, // 100 SOL
     ];
 
     for sol_in in swaps {
@@ -351,10 +311,10 @@ fn verify_sell_output_bounded() {
 
     // Sell tokens for SOL (reverse direction)
     let token_inputs: [u64; 4] = [
-        1_000_000,              // 1 token
-        1_000_000_000,          // 1000 tokens
-        1_000_000_000_000,      // 1M tokens
-        100_000_000_000_000,    // 100M tokens
+        1_000_000,           // 1 token
+        1_000_000_000,       // 1000 tokens
+        1_000_000_000_000,   // 1M tokens
+        100_000_000_000_000, // 100M tokens
     ];
 
     for tokens_in in token_inputs {
@@ -418,6 +378,6 @@ fn verify_lp_lock_rates() {
         let to_provider = lp - lock;
         assert!(lock <= lp);
         assert!(to_provider > lp * 9 / 10); // > 90%
-        assert!(to_provider < lp);           // < 100%
+        assert!(to_provider < lp); // < 100%
     }
 }

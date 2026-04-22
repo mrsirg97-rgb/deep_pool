@@ -2,13 +2,14 @@ use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{
-        self, Mint as MintInterface, TokenAccount as TokenAccountInterface, TokenInterface,
-        TransferChecked, MintTo,
+        self, Mint as MintInterface, MintTo, TokenAccount as TokenAccountInterface, TokenInterface,
+        TransferChecked,
     },
 };
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::math;
 use crate::state::Pool;
 
 #[derive(AnchorDeserialize, AnchorSerialize)]
@@ -27,20 +28,20 @@ pub struct AddLiquidity<'info> {
         seeds = [POOL_SEED, pool.config.as_ref(), pool.token_mint.as_ref()],
         bump = pool.bump,
     )]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.token_mint)]
-    pub token_mint: InterfaceAccount<'info, MintInterface>,
+    pub token_mint: Box<InterfaceAccount<'info, MintInterface>>,
     #[account(mut, address = pool.token_vault)]
-    pub token_vault: InterfaceAccount<'info, TokenAccountInterface>,
+    pub token_vault: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     #[account(mut, address = pool.lp_mint)]
-    pub lp_mint: InterfaceAccount<'info, MintInterface>,
+    pub lp_mint: Box<InterfaceAccount<'info, MintInterface>>,
     #[account(
         mut,
         associated_token::mint = token_mint,
         associated_token::authority = provider,
         associated_token::token_program = token_program,
     )]
-    pub provider_token_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub provider_token_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     #[account(
         init_if_needed,
         payer = provider,
@@ -48,7 +49,7 @@ pub struct AddLiquidity<'info> {
         associated_token::authority = provider,
         associated_token::token_program = token_program,
     )]
-    pub provider_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub provider_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     // Pool PDA's LP account — receives 20% (permanently locked).
     #[account(
         mut,
@@ -56,7 +57,7 @@ pub struct AddLiquidity<'info> {
         associated_token::authority = pool,
         associated_token::token_program = token_program,
     )]
-    pub pool_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub pool_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -64,23 +65,19 @@ pub struct AddLiquidity<'info> {
 
 pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
     require!(args.token_amount > 0, DeepPoolError::ZeroDeposit);
-
     let pool_info = ctx.accounts.pool.to_account_info();
     let sol_reserve = Pool::sol_reserve(&pool_info)?;
     let token_reserve = ctx.accounts.token_vault.amount;
-    require!(sol_reserve > 0 && token_reserve > 0, DeepPoolError::EmptyPool);
-
+    require!(
+        sol_reserve > 0 && token_reserve > 0,
+        DeepPoolError::EmptyPool
+    );
     let lp_supply = ctx.accounts.lp_mint.supply;
     require!(lp_supply > 0, DeepPoolError::EmptyPool);
 
     // 1. Compute required SOL for proportional deposit
-    // sol_required = token_amount * sol_reserve / token_reserve
-    let sol_required = (args.token_amount as u128)
-        .checked_mul(sol_reserve as u128)
-        .ok_or(DeepPoolError::MathOverflow)?
-        .checked_div(token_reserve as u128)
-        .ok_or(DeepPoolError::MathOverflow)? as u64;
-
+    let sol_required = math::calc_lp_redeem(args.token_amount, sol_reserve, token_reserve)
+        .ok_or(DeepPoolError::MathOverflow)?;
     require!(sol_required > 0, DeepPoolError::ZeroDeposit);
     require!(
         sol_required <= args.max_sol_amount,
@@ -105,7 +102,10 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     )?;
 
     ctx.accounts.token_vault.reload()?;
-    let net_tokens = ctx.accounts.token_vault.amount
+    let net_tokens = ctx
+        .accounts
+        .token_vault
+        .amount
         .checked_sub(vault_before)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(net_tokens > 0, DeepPoolError::ZeroDeposit);
@@ -123,13 +123,8 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     )?;
 
     // 4. Compute LP tokens to mint (proportional to token deposit)
-    // lp_amount = lp_supply * net_tokens / token_reserve
-    let lp_amount = (lp_supply as u128)
-        .checked_mul(net_tokens as u128)
-        .ok_or(DeepPoolError::MathOverflow)?
-        .checked_div(token_reserve as u128)
-        .ok_or(DeepPoolError::MathOverflow)? as u64;
-
+    let lp_amount = math::calc_lp_mint(lp_supply, net_tokens, token_reserve)
+        .ok_or(DeepPoolError::MathOverflow)?;
     require!(lp_amount > 0, DeepPoolError::ZeroDeposit);
 
     // 5. Burn 20% of LP — permanently locked in the pool

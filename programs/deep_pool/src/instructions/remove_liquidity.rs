@@ -2,13 +2,14 @@ use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{
-        self, Mint as MintInterface, TokenAccount as TokenAccountInterface, TokenInterface,
-        TransferChecked, Burn,
+        self, Burn, Mint as MintInterface, TokenAccount as TokenAccountInterface, TokenInterface,
+        TransferChecked,
     },
 };
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::math;
 use crate::state::Pool;
 
 #[derive(AnchorDeserialize, AnchorSerialize)]
@@ -63,27 +64,27 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
     let token_reserve = ctx.accounts.token_vault.amount;
     let lp_supply = ctx.accounts.lp_mint.supply;
 
-    require!(sol_reserve > 0 && token_reserve > 0, DeepPoolError::EmptyPool);
+    require!(
+        sol_reserve > 0 && token_reserve > 0,
+        DeepPoolError::EmptyPool
+    );
     require!(lp_supply > 0, DeepPoolError::EmptyPool);
 
     // 1. Compute proportional share
-    // sol_out = lp_amount * sol_reserve / lp_supply (floor)
-    let sol_out = (args.lp_amount as u128)
-        .checked_mul(sol_reserve as u128)
-        .ok_or(DeepPoolError::MathOverflow)?
-        .checked_div(lp_supply as u128)
-        .ok_or(DeepPoolError::MathOverflow)? as u64;
-
-    // tokens_out = lp_amount * token_reserve / lp_supply (floor)
-    let tokens_out = (args.lp_amount as u128)
-        .checked_mul(token_reserve as u128)
-        .ok_or(DeepPoolError::MathOverflow)?
-        .checked_div(lp_supply as u128)
-        .ok_or(DeepPoolError::MathOverflow)? as u64;
+    let sol_out = math::calc_lp_redeem(args.lp_amount, sol_reserve, lp_supply)
+        .ok_or(DeepPoolError::MathOverflow)?;
+    let tokens_out = math::calc_lp_redeem(args.lp_amount, token_reserve, lp_supply)
+        .ok_or(DeepPoolError::MathOverflow)?;
 
     // 2. Slippage checks
-    require!(sol_out >= args.min_sol_out, DeepPoolError::SolOutputSlippage);
-    require!(tokens_out >= args.min_tokens_out, DeepPoolError::TokenOutputSlippage);
+    require!(
+        sol_out >= args.min_sol_out,
+        DeepPoolError::SolOutputSlippage
+    );
+    require!(
+        tokens_out >= args.min_tokens_out,
+        DeepPoolError::TokenOutputSlippage
+    );
 
     // 3. Ensure pool retains minimum reserves after removal
     let sol_remaining = sol_reserve
@@ -138,7 +139,10 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
 
     // 6. Transfer SOL from pool PDA to provider (direct lamport — must be LAST, after all CPIs)
     ctx.accounts.pool.to_account_info().sub_lamports(sol_out)?;
-    ctx.accounts.provider.to_account_info().add_lamports(sol_out)?;
+    ctx.accounts
+        .provider
+        .to_account_info()
+        .add_lamports(sol_out)?;
 
     Ok(())
 }

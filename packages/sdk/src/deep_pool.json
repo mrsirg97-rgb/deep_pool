@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -282,11 +282,6 @@
         },
         {
           "name": "config",
-          "docs": [
-            "Namespace config — must sign. Prevents pool squatting.",
-            "For CPI: a program PDA signed via CpiContext::new_with_signer.",
-            "For wallets: the creator (same key, already signing)."
-          ],
           "signer": true
         },
         {

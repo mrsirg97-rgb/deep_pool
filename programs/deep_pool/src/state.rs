@@ -29,7 +29,7 @@ impl Pool {
         + 8   // initial_sol
         + 8   // initial_tokens
         + 8   // total_swaps
-        + 1;  // bump
+        + 1; // bump
 
     // SOL reserve = PDA lamports minus rent-exempt minimum.
     pub fn sol_reserve(pool_info: &AccountInfo) -> Result<u64> {

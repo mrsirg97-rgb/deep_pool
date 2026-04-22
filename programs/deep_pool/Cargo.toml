@@ -1,6 +1,6 @@
 [package]
 name = "deep_pool"
-version = "2.0.0"
+version = "3.0.0"
 description = "Immutable constant-product pool protocol"
 edition = "2021"
 
@@ -22,3 +22,6 @@ custom-panic = []
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }
+
+[dev-dependencies]
+proptest = "1.5"

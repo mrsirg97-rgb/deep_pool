@@ -9,6 +9,7 @@ use anchor_spl::{
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::math;
 use crate::state::Pool;
 
 #[derive(AnchorDeserialize, AnchorSerialize)]
@@ -50,11 +51,13 @@ pub struct Swap<'info> {
 
 pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
     require!(args.amount_in > 0, DeepPoolError::ZeroInput);
-
     let pool_info = ctx.accounts.pool.to_account_info();
     let sol_reserve = Pool::sol_reserve(&pool_info)?;
     let token_reserve = ctx.accounts.token_vault.amount;
-    require!(sol_reserve > 0 && token_reserve > 0, DeepPoolError::EmptyPool);
+    require!(
+        sol_reserve > 0 && token_reserve > 0,
+        DeepPoolError::EmptyPool
+    );
 
     let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
@@ -81,27 +84,19 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         };
 
         // 1. Apply fee on input SOL
-        let fee = args.amount_in
-            .checked_mul(SWAP_FEE_BPS)
-            .ok_or(DeepPoolError::MathOverflow)?
-            .checked_div(FEE_DENOMINATOR)
-            .ok_or(DeepPoolError::MathOverflow)?;
-        let effective_in = args.amount_in
+        let fee = math::calc_swap_fee(args.amount_in).ok_or(DeepPoolError::MathOverflow)?;
+        let effective_in = args
+            .amount_in
             .checked_sub(fee)
             .ok_or(DeepPoolError::MathOverflow)?;
 
-        // 2. Constant product: tokens_out = (effective_in * token_reserve) / (base_sol_reserve + effective_in)
-        let tokens_out = (effective_in as u128)
-            .checked_mul(token_reserve as u128)
-            .ok_or(DeepPoolError::MathOverflow)?
-            .checked_div(
-                (base_sol_reserve as u128)
-                    .checked_add(effective_in as u128)
-                    .ok_or(DeepPoolError::MathOverflow)?,
-            )
-            .ok_or(DeepPoolError::MathOverflow)? as u64;
-
-        require!(tokens_out >= args.minimum_out, DeepPoolError::SlippageExceeded);
+        // 2. Constant product output
+        let tokens_out = math::calc_swap_output(effective_in, base_sol_reserve, token_reserve)
+            .ok_or(DeepPoolError::MathOverflow)?;
+        require!(
+            tokens_out >= args.minimum_out,
+            DeepPoolError::SlippageExceeded
+        );
         require!(tokens_out < token_reserve, DeepPoolError::EmptyPool);
 
         // 3. Transfer SOL from wallet callers via System Program
@@ -153,32 +148,23 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         )?;
 
         ctx.accounts.token_vault.reload()?;
-        let net_received = ctx.accounts.token_vault.amount
+        let net_received = ctx
+            .accounts
+            .token_vault
+            .amount
             .checked_sub(vault_before)
             .ok_or(DeepPoolError::MathOverflow)?;
         require!(net_received > 0, DeepPoolError::ZeroInput);
 
         // 2. Apply fee on net received tokens
-        let fee = net_received
-            .checked_mul(SWAP_FEE_BPS)
-            .ok_or(DeepPoolError::MathOverflow)?
-            .checked_div(FEE_DENOMINATOR)
-            .ok_or(DeepPoolError::MathOverflow)?;
+        let fee = math::calc_swap_fee(net_received).ok_or(DeepPoolError::MathOverflow)?;
         let effective_in = net_received
             .checked_sub(fee)
             .ok_or(DeepPoolError::MathOverflow)?;
 
-        // 3. Constant product: sol_out = (effective_in * sol_reserve) / (token_reserve + effective_in)
-        let sol_out = (effective_in as u128)
-            .checked_mul(sol_reserve as u128)
-            .ok_or(DeepPoolError::MathOverflow)?
-            .checked_div(
-                (token_reserve as u128)
-                    .checked_add(effective_in as u128)
-                    .ok_or(DeepPoolError::MathOverflow)?,
-            )
-            .ok_or(DeepPoolError::MathOverflow)? as u64;
-
+        // 3. Constant product output
+        let sol_out = math::calc_swap_output(effective_in, token_reserve, sol_reserve)
+            .ok_or(DeepPoolError::MathOverflow)?;
         require!(sol_out >= args.minimum_out, DeepPoolError::SlippageExceeded);
         require!(sol_out < sol_reserve, DeepPoolError::EmptyPool);
 
