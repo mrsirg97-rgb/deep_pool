@@ -286,9 +286,13 @@ export const buildSwapTransaction = async (
     amountIn: number
     minimumOut: number
     buy: boolean
+    // Optional SOL source/sink. Defaults to `user` for wallet callers.
+    // CPI-style callers pass a distinct system-owned PDA.
+    solSource?: string
   },
 ): Promise<{ transaction: Transaction; message: string }> => {
   const user = new PublicKey(params.user)
+  const solSource = params.solSource ? new PublicKey(params.solSource) : user
   const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
   const [pool] = getPoolPda(config, tokenMint)
@@ -297,6 +301,7 @@ export const buildSwapTransaction = async (
 
   const ix = await buildInstruction('swap', {
     user,
+    solSource,
     pool,
     tokenMint,
     tokenVault: vault,
@@ -426,7 +431,12 @@ async function buildInstruction(
 ): Promise<TransactionInstruction> {
   const ix = (coder.instruction as any).encode(name, args)
   const keys = Object.entries(accounts).map(([key, pubkey]) => {
-    const isSigner = key === 'creator' || key === 'provider' || key === 'user' || key === 'config'
+    const isSigner =
+      key === 'creator' ||
+      key === 'provider' ||
+      key === 'user' ||
+      key === 'solSource' ||
+      key === 'config'
     const isWritable =
       key !== 'tokenProgram' &&
       key !== 'associatedTokenProgram' &&

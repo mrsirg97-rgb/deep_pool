@@ -28,6 +28,4 @@ pub enum DeepPoolError {
     SolOutputSlippage,
     #[msg("Token output below minimum (slippage exceeded)")]
     TokenOutputSlippage,
-    #[msg("Pool did not receive expected SOL deposit")]
-    InsufficientDeposit,
 }

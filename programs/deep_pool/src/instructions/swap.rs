@@ -25,6 +25,10 @@ pub struct SwapArgs {
 pub struct Swap<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
+    // SOL source on buy / SOL sink on sell. Equals `user` for wallet callers.
+    // CPI callers pass a distinct system-owned PDA they sign for.
+    #[account(mut)]
+    pub sol_source: Signer<'info>,
     #[account(
         mut,
         seeds = [POOL_SEED, pool.config.as_ref(), pool.token_mint.as_ref()],
@@ -70,28 +74,15 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
     let signer_seeds = &[&pool_seeds[..]];
 
     if args.buy {
-        // SOL → Token
-        // CPI callers (e.g. torch_market) pre-deposit SOL before invoking swap,
-        // so sol_reserve already includes amount_in. Wallet callers transfer via
-        // System Program below, so sol_reserve is the true pre-swap reserve.
-        let is_wallet = ctx.accounts.user.owner == &anchor_lang::system_program::ID;
-        let base_sol_reserve = if is_wallet {
-            sol_reserve
-        } else {
-            sol_reserve
-                .checked_sub(args.amount_in)
-                .ok_or(DeepPoolError::InsufficientDeposit)?
-        };
-
-        // 1. Apply fee on input SOL
+        // SOL → Token. The System.transfer below is the only path that credits
+        // the pool, so sol_reserve is the true pre-trade reserve.
         let fee = math::calc_swap_fee(args.amount_in).ok_or(DeepPoolError::MathOverflow)?;
         let effective_in = args
             .amount_in
             .checked_sub(fee)
             .ok_or(DeepPoolError::MathOverflow)?;
 
-        // 2. Constant product output
-        let tokens_out = math::calc_swap_output(effective_in, base_sol_reserve, token_reserve)
+        let tokens_out = math::calc_swap_output(effective_in, sol_reserve, token_reserve)
             .ok_or(DeepPoolError::MathOverflow)?;
         require!(
             tokens_out >= args.minimum_out,
@@ -99,21 +90,21 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         );
         require!(tokens_out < token_reserve, DeepPoolError::EmptyPool);
 
-        // 3. Transfer SOL from wallet callers via System Program
-        if is_wallet {
-            anchor_lang::system_program::transfer(
-                CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    anchor_lang::system_program::Transfer {
-                        from: ctx.accounts.user.to_account_info(),
-                        to: pool_info,
-                    },
-                ),
-                args.amount_in,
-            )?;
-        }
+        // Works for wallets directly and for program-derived system-owned PDAs
+        // via invoke_signed. The system program enforces that `from` actually
+        // had the lamports — no caller can claim amount_in without providing it.
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.sol_source.to_account_info(),
+                    to: pool_info,
+                },
+            ),
+            args.amount_in,
+        )?;
 
-        // 4. Transfer tokens from vault to user
+        // Transfer tokens from vault to user
         token_interface::transfer_checked(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -168,14 +159,16 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         require!(sol_out >= args.minimum_out, DeepPoolError::SlippageExceeded);
         require!(sol_out < sol_reserve, DeepPoolError::EmptyPool);
 
-        // 4. Transfer SOL from pool PDA to user
+        // 4. Transfer SOL from pool PDA to sol_source. Direct lamport credit is
+        // owner-agnostic, so sol_source may be program-owned here (e.g. a CPI
+        // caller routing proceeds back to their own state PDA).
         let pool_account = ctx.accounts.pool.to_account_info();
         **pool_account.try_borrow_mut_lamports()? = pool_account
             .lamports()
             .checked_sub(sol_out)
             .ok_or(DeepPoolError::MathOverflow)?;
-        let user_account = ctx.accounts.user.to_account_info();
-        **user_account.try_borrow_mut_lamports()? = user_account
+        let sink = ctx.accounts.sol_source.to_account_info();
+        **sink.try_borrow_mut_lamports()? = sink
             .lamports()
             .checked_add(sol_out)
             .ok_or(DeepPoolError::MathOverflow)?;
