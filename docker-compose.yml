@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: deep-pool-pg
+    environment:
+      # Superuser creds for ops + init scripts. Indexer does NOT use these.
+      POSTGRES_USER: ${POSTGRES_USER:-deep_pool}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-deep_pool}
+      # Consumed by db/02-indexer-role.sh to create the least-privilege role.
+      INDEXER_DB_PASSWORD: ${INDEXER_DB_PASSWORD:?INDEXER_DB_PASSWORD must be set in .env}
+    ports:
+      # Loopback only. Ops access via:
+      #   docker exec -it deep-pool-pg psql -U ${POSTGRES_USER:-deep_pool}
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - deep_pool_pgdata:/var/lib/postgresql/data
+      # Init scripts run once, in lexical order, on first volume creation.
+      # 01-schema.sql → DDL. 02-indexer-role.sh → least-privilege indexer role.
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deep_pool}"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  # Indexer only runs when explicitly invoked:
+  #   docker compose --profile full up --build
+  # Default `docker compose up` starts just Postgres so the dev loop
+  # (cargo run from host) stays fast.
+  indexer:
+    profiles: ["full"]
+    build:
+      context: ./indexer
+    container_name: deep-pool-indexer
+    env_file:
+      # Holds LASERSTREAM_URL, LASERSTREAM_TOKEN, DEEP_POOL_PROGRAM_ID, etc.
+      - path: ./indexer/.env
+        required: false
+    environment:
+      # Service-name networking inside the compose network. Indexer connects
+      # as the limited `deep_pool_indexer` role, not the superuser.
+      DATABASE_URL: postgres://deep_pool_indexer:${INDEXER_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-deep_pool}
+      # Listen on all container interfaces; host port-mapping below scopes
+      # external access back to loopback.
+      API_BIND: 0.0.0.0:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+  # UI shares the indexer's `full` profile so the whole stack comes up
+  # with one command:
+  #   docker compose --profile full up --build
+  app:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: packages/app/Dockerfile
+      args:
+        # Baked into the client bundle at build time. The user's browser
+        # hits the indexer through the host's loopback port mapping, NOT
+        # the docker network — `indexer:8080` only resolves inside the
+        # compose network, which the browser is not on.
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+        NEXT_PUBLIC_INDEXER_URL: ${NEXT_PUBLIC_INDEXER_URL:-http://localhost:8080}
+        NEXT_PUBLIC_PROGRAM_ID: ${NEXT_PUBLIC_PROGRAM_ID:-4GFr4EdVn9TGArzSaCraaGXNDj8sgf4nNRXH3LkrC8Q9}
+    container_name: deep-pool-app
+    depends_on:
+      indexer:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  deep_pool_pgdata:

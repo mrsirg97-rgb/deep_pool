@@ -7,12 +7,14 @@ DeepPool's core arithmetic is property-tested using [proptest](https://proptest-
 Proptest complements the Kani harnesses ([verification.md](./verification.md)): Kani proves exact correctness at concrete values, proptest explores the full u64 input space with thousands of randomly-drawn cases and automatically shrinks any failing input down to the minimal reproducing case.
 
 **Tool:** proptest 1.x
-**Target:** `deep_pool` v3.1.0
+**Target:** `deep_pool` v4.0.0
 **Properties:** 19 properties across 6 modules, all passing
 **Cases per property:** 10,000 (5,000 for the composite roundtrip)
 **Total assertions per run:** ~185,000
 **Source:** `programs/deep_pool/tests/math_proptests.rs`
 **Run with:** `cargo test -p deep_pool --test math_proptests`
+
+> **v4.0.0 note.** v4 added `emit_cpi!` event emission to all four instructions. Events are observability, not protocol logic — they don't affect the constant-product math, fee accumulation, or LP minting/redemption arithmetic. The properties below are unchanged from v3.1.0 and continue to pass against the v4.0.0 binary.
 
 Located under `tests/` rather than `src/` so the `proptest!` macro DSL isn't parsed by Anchor's `#[program]` safety-check macro, which walks the lib source tree with syn and doesn't understand macro semantics.
 
@@ -88,7 +90,8 @@ The same exclusions as Kani — neither tool covers:
 - Economic attacks (sandwich, front-running, MEV)
 - Rent-exempt minimum handling edge cases
 - Network-level concerns (transaction ordering, commitment levels)
-- The new v3.1.0 `sol_source` account substitution surface — covered by code audit and Anchor's `Signer` constraint
+- The v3.1.0 `sol_source` account substitution surface — covered by code audit and Anchor's `Signer` constraint
+- The v4.0.0 `emit_cpi!` event emission — observability path, not protocol logic; covered by integration tests in the indexer crate
 
 These require code audit and adversarial testing. See [audit.md](./audit.md).
 

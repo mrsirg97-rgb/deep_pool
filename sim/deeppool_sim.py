@@ -87,10 +87,12 @@ class DeepPool:
         self.total_fees_tokens += fee
         return sol_out
 
-    def add_liquidity(self, token_amount: int) -> tuple[int, int]:
+    def add_liquidity(self, token_amount: int, min_lp_out: int = 0) -> tuple[int, int]:
         """Add proportional liquidity. Returns (sol_required, lp_minted)."""
         sol_required = (token_amount * self.sol_reserve) // self.token_reserve
         lp_minted = (self.lp_supply * token_amount) // self.token_reserve
+
+        assert lp_minted >= min_lp_out, f"LP output {lp_minted} below minimum {min_lp_out}"
 
         self.sol_reserve += sol_required
         self.token_reserve += token_amount

@@ -34,6 +34,8 @@ import {
   getPoolPda,
   getVaultPda,
   getLpMintPda,
+  parseEvents,
+  type DecodedEvent,
 } from '../src/index'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -99,6 +101,28 @@ const main = async () => {
     failed++
     log(`  ✗ ${name} — ${err.message || err}`)
   }
+  // Compares via toString to handle BN, PublicKey, number, bool uniformly.
+  const assertEvent = (
+    events: DecodedEvent[],
+    name: string,
+    checks: Record<string, any>,
+  ) => {
+    const ev = events.find((e) => e.name === name)
+    if (!ev) {
+      fail(`event ${name}`, 'not emitted')
+      return
+    }
+    for (const [k, expected] of Object.entries(checks)) {
+      const actual = ev.data[k]
+      const a = actual?.toString?.() ?? String(actual)
+      const e = expected?.toString?.() ?? String(expected)
+      if (a !== e) {
+        fail(`event ${name}.${k}`, `expected ${e}, got ${a}`)
+        return
+      }
+    }
+    ok(`event ${name}`, `${Object.keys(checks).length} fields verified`)
+  }
 
   // ------------------------------------------------------------------
   // 1. Create Token-2022 Mint (test token)
@@ -162,6 +186,15 @@ const main = async () => {
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
     ok('create pool', `pool=${result.pool.slice(0, 8)}... lp_mint=${result.lpMint.slice(0, 8)}... sig=${sig.slice(0, 8)}...`)
+
+    const evs = await parseEvents(connection, sig)
+    const [poolPda] = getPoolPda(wallet.publicKey, mint)
+    assertEvent(evs, 'PoolCreated', {
+      pool: poolPda,
+      creator: wallet.publicKey,
+      sol_in_gross: initialSol,
+      tokens_in_gross: initialTokens,
+    })
   } catch (e: any) {
     fail('create pool', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
@@ -207,6 +240,13 @@ const main = async () => {
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
     ok('buy swap', `sig=${sig.slice(0, 8)}...`)
+
+    const evs = await parseEvents(connection, sig)
+    assertEvent(evs, 'SwapExecuted', {
+      buy: true,
+      amount_in_gross: 1 * LAMPORTS_PER_SOL,
+      amount_in_net: 1 * LAMPORTS_PER_SOL,
+    })
   } catch (e: any) {
     fail('buy swap', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
@@ -246,6 +286,12 @@ const main = async () => {
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
     ok('sell swap', `sig=${sig.slice(0, 8)}...`)
+
+    const evs = await parseEvents(connection, sig)
+    assertEvent(evs, 'SwapExecuted', {
+      buy: false,
+      amount_in_gross: sellAmount,
+    })
   } catch (e: any) {
     fail('sell swap', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
@@ -286,6 +332,7 @@ const main = async () => {
       tokenMint: mint.toBase58(),
       tokenAmount,
       maxSolAmount: maxSol,
+      minLpOut: 0,
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
 
@@ -306,6 +353,13 @@ const main = async () => {
     } else {
       ok('add liquidity', `sig=${sig.slice(0, 8)}...`)
     }
+
+    const evs = await parseEvents(connection, sig)
+    assertEvent(evs, 'LiquidityAdded', {
+      provider: wallet.publicKey,
+      tokens_in_gross: tokenAmount,
+      lp_to_provider: userLpGain,
+    })
   } catch (e: any) {
     fail('add liquidity', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
@@ -339,6 +393,12 @@ const main = async () => {
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
     ok('remove liquidity', `sig=${sig.slice(0, 8)}...`)
+
+    const evs = await parseEvents(connection, sig)
+    assertEvent(evs, 'LiquidityRemoved', {
+      provider: wallet.publicKey,
+      lp_burned: lpAmount,
+    })
   } catch (e: any) {
     fail('remove liquidity', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
@@ -499,6 +559,7 @@ const main = async () => {
       tokenMint: mint.toBase58(),
       tokenAmount: 5_000_000 * TOKEN_MULTIPLIER,
       maxSolAmount: 3 * LAMPORTS_PER_SOL,
+      minLpOut: 0,
     })
     addResult.transaction.feePayer = provider2.publicKey
     const { blockhash: addBh } = await connection.getLatestBlockhash()

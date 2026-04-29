@@ -1,8 +1,8 @@
 # DeepPool Security Audit
 
-**Date:** April 22, 2026
+**Date:** April 28, 2026
 **Auditor:** Claude Opus 4.7 (Anthropic)
-**Version:** 3.1.0
+**Version:** 4.0.0
 **Framework:** Anchor 0.32.1 / Solana 3.0
 **Program ID:** `CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT`
 **Deployment:** Devnet + Mainnet
@@ -36,7 +36,7 @@
 
 ## Changes Since v1.0.8
 
-Three protocol-level changes shipped since the previous audit. All are strictly defensive.
+Four protocol-level changes shipped since the previous audit. All are strictly defensive.
 
 ### v2.0.0 — Signer-verified namespace (pool squatting fix)
 
@@ -64,6 +64,28 @@ pub sol_source: Signer<'info>,     // SOL source (buy) / SOL sink (sell)
 Wallet callers pass `sol_source = user`. CPI callers pass a system-owned PDA they sign for via `invoke_signed`. On sell, `sol_source` receives lamports via direct credit — owner-agnostic, so program-owned accounts are valid sinks. Both accounts are `Signer`, eliminating substitution attacks.
 
 The split cost nothing in CU (sell path identical, buy path identical modulo account layout) and enabled torch's `vault_sol` / `torch_vault` pattern without reintroducing the v3.0 trust model.
+
+### v3.2.0 — Explicit rent-exempt floor + add_liquidity slippage
+
+**Swap sell path — explicit rent-exempt floor check.** The sell branch uses direct lamport manipulation (pool PDA is program-owned, can't use `System.transfer`). Added an explicit `require!(pool.lamports >= rent_exempt)` check after the SOL withdrawal, making the rent-exempt preservation invariant visible at the point of lamport manipulation. The `sol_out < sol_reserve` check at the top of the handler still provides the primary guard; this is a defense-in-depth assertion.
+
+**Add liquidity — `min_lp_out` slippage parameter.** Added `min_lp_out: u64` to `AddLiquidityArgs`. With Token-2022 transfer fees, the net tokens received by the vault can be less than the user-specified `token_amount`, yielding fewer LP tokens than expected. The `min_lp_out` check lets users reject the transaction if LP output falls below their threshold. Existing callers should pass `0` to disable.
+
+### v4.0.0 — Event emission via `emit_cpi!`
+
+All four instructions (`create_pool`, `add_liquidity`, `remove_liquidity`, `swap`) now emit structured events through Anchor's `emit_cpi!` macro. Events ride on a self-CPI to the program; the payload surfaces in `inner_instructions` with the layout `[8-byte EVENT_IX_TAG_LE | 8-byte event_discriminator | borsh payload]`. This is consensus-state event emission, not log-line emission — payloads are never truncated by Solana's log size limits and are always retrievable via `getTransaction`.
+
+Four event types: `PoolCreated`, `SwapExecuted`, `LiquidityAdded`, `LiquidityRemoved`. Each carries post-state reserves, gross/net amounts on every token leg (so off-chain consumers can recover Token-2022 transfer-fee leakage), and the canonical idempotency key `(signature, inner_ix_idx)`. See [events.md](./events.md) for field-level details.
+
+**Breaking change.** `#[event_cpi]` auto-injects `event_authority` (PDA at `[b"__event_authority"]`) and the program itself into every emitting instruction's `Accounts` struct. Every caller must regenerate from the new IDL — the in-tree SDK was updated in lockstep.
+
+**Behavioral surface unchanged.** Events are observability, not protocol logic. The constant-product math, fee accumulation, LP locking, and rent-exempt invariants are bit-identical to v3.2.0. The 19 proptest properties and 16 Kani harnesses pass without modification.
+
+**CU cost.** Self-CPI overhead is roughly 1k CU per event. Measured swap CU is **24k**, comfortably below Solana's 200k per-instruction budget. No realistic ix in the program is now CU-bound.
+
+**Implementation detail — Token-2022 fee delta measurement.** Outbound token transfers (swap buy, remove_liquidity) now reload the recipient's token account after the transfer to compute `_net` amounts (= post-balance − pre-balance). This robustly captures whatever Token-2022 extension fees siphon between sender and recipient, regardless of which extension is configured. Inbound transfers already used this pattern (`vault_before` measurement); v4 brings outbound parity.
+
+**Boxing-driven account-frame fix.** `#[event_cpi]` adds two accounts to every ix's deserialization frame. `CreatePool` and `RemoveLiquidity` exceeded the 4096-byte BPF stack with the additional accounts; both structs are now `Box<Account<...>>` / `Box<InterfaceAccount<...>>` to push the heavy fields onto the heap. `AddLiquidity` was already boxed; `Swap` stays unboxed (frame still fits). Behaviorally identical, just a memory-layout adjustment.
 
 ---
 
@@ -252,10 +274,11 @@ Key proven / property-tested invariants:
 
 ## Conclusion
 
-DeepPool v3.1.0 closes two classes of latent issue present in v1.0.8:
+DeepPool v4.0.0 closes two classes of latent issue present in v1.0.8 and adds structured event emission for off-chain consumers:
 
 1. **Pool squatting** is cryptographically blocked by signer-verified namespaces (v2.0).
 2. **CPI deposit trust** is eliminated by the unified `System.transfer` path (v3.0) and preserved composability via `sol_source` (v3.1).
+3. **Event observability** lands via `emit_cpi!` (v4.0) — every state-changing instruction emits a typed payload through inner instructions, with `(signature, inner_ix_idx)` as a stable idempotency key for downstream indexers.
 
 The LP lock ratchet (20% creator / 7.5% provider, compounding) enforces a permanent reserve floor proportional to deposit history — the pool can never be drained past that ratio without an `add_liquidity` call that immediately widens the ratio.
 

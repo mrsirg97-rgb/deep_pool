@@ -56,6 +56,9 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
         tokenMint: mint,
         tokenAmount: tokenRequired,
         maxSolAmount: maxSol,
+        // No quote panel — SOL slippage is bounded by maxSolAmount; LP output
+        // is proportional to tokenAmount so 0 is the v1 floor.
+        minLpOut: 0,
       })
       const sig = await wallet.sendTransaction(transaction, connection)
       await connection.confirmTransaction(sig, 'confirmed')

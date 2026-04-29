@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "3.1.0",
+    "version": "4.0.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -249,6 +249,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -554,6 +586,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -752,6 +816,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -894,6 +990,38 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -920,6 +1048,60 @@
         177,
         109,
         188
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "LiquidityAdded",
+      "discriminator": [
+        154,
+        26,
+        221,
+        108,
+        238,
+        64,
+        217,
+        161
+      ]
+    },
+    {
+      "name": "LiquidityRemoved",
+      "discriminator": [
+        225,
+        105,
+        216,
+        39,
+        124,
+        116,
+        169,
+        189
+      ]
+    },
+    {
+      "name": "PoolCreated",
+      "discriminator": [
+        202,
+        44,
+        41,
+        88,
+        104,
+        220,
+        157,
+        82
+      ]
+    },
+    {
+      "name": "SwapExecuted",
+      "discriminator": [
+        150,
+        166,
+        26,
+        225,
+        28,
+        89,
+        38,
+        79
       ]
     }
   ],
@@ -1003,6 +1185,10 @@
           {
             "name": "max_sol_amount",
             "type": "u64"
+          },
+          {
+            "name": "min_lp_out",
+            "type": "u64"
           }
         ]
       }
@@ -1018,6 +1204,106 @@
           },
           {
             "name": "initial_sol_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityAdded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_in_gross",
+            "type": "u64"
+          },
+          {
+            "name": "sol_in_net",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_in_gross",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_in_net",
+            "type": "u64"
+          },
+          {
+            "name": "lp_to_provider",
+            "type": "u64"
+          },
+          {
+            "name": "lp_locked",
+            "type": "u64"
+          },
+          {
+            "name": "sol_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "token_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "lp_supply_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityRemoved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_burned",
+            "type": "u64"
+          },
+          {
+            "name": "sol_out_gross",
+            "type": "u64"
+          },
+          {
+            "name": "sol_out_net",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_out_gross",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_out_net",
+            "type": "u64"
+          },
+          {
+            "name": "sol_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "token_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "lp_supply_after",
             "type": "u64"
           }
         ]
@@ -1064,6 +1350,70 @@
       }
     },
     {
+      "name": "PoolCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_in_gross",
+            "type": "u64"
+          },
+          {
+            "name": "sol_in_net",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_in_gross",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_in_net",
+            "type": "u64"
+          },
+          {
+            "name": "sol_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "token_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "lp_supply_after",
+            "type": "u64"
+          },
+          {
+            "name": "lp_to_creator",
+            "type": "u64"
+          },
+          {
+            "name": "lp_locked",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "RemoveLiquidityArgs",
       "type": {
         "kind": "struct",
@@ -1099,6 +1449,62 @@
           {
             "name": "buy",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_source",
+            "type": "pubkey"
+          },
+          {
+            "name": "buy",
+            "type": "bool"
+          },
+          {
+            "name": "amount_in_gross",
+            "type": "u64"
+          },
+          {
+            "name": "amount_in_net",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out_gross",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out_net",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "sol_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "token_reserve_after",
+            "type": "u64"
+          },
+          {
+            "name": "total_swaps",
+            "type": "u64"
           }
         ]
       }

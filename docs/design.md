@@ -82,6 +82,7 @@ Deposit SOL + tokens proportionally, receive LP tokens.
 **Inputs:**
 - `token_amount` — tokens to deposit
 - `max_sol_amount` — maximum SOL willing to deposit (slippage protection)
+- `min_lp_out` — minimum LP tokens to receive (slippage protection against Token-2022 transfer fees)
 
 **Flow:**
 1. Compute required SOL: `sol_required = token_amount * sol_reserve / token_reserve`
@@ -89,7 +90,8 @@ Deposit SOL + tokens proportionally, receive LP tokens.
 3. `transfer_checked` tokens to vault, measure net received
 4. `System.transfer` SOL to pool PDA
 5. Compute LP: `lp_amount = lp_supply * net_tokens / token_reserve`
-6. Mint 92.5% LP to provider, 7.5% LP to `pool_lp_account` (locked)
+6. Slippage check: `lp_amount >= min_lp_out`
+7. Mint 92.5% LP to provider, 7.5% LP to `pool_lp_account` (locked)
 
 **Constraints:**
 - Pool must exist with non-zero reserves and non-zero LP supply

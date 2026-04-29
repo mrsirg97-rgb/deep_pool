@@ -5,10 +5,12 @@
 DeepPool's core arithmetic is formally verified using [Kani](https://model-checking.github.io/kani/), a Rust model checker backed by the CBMC bounded model checker. Proofs cover swap math, fee conservation, LP minting/redemption, and the self-deepening invariant (k monotonically non-decreasing).
 
 **Tool:** Kani Rust Verifier 0.67.0 / CBMC 6.8.0
-**Target:** `deep_pool` v3.1.0
+**Target:** `deep_pool` v4.0.0
 **Harnesses:** 16 proof harnesses (15 concrete + 1 symbolic), all passing
 **Source:** `programs/deep_pool/src/kani_proofs.rs`
 **Companion:** [properties.md](./properties.md) — 19 proptest properties for broader random coverage
+
+> **v4.0.0 note.** v4 added `emit_cpi!` event emission to all four instructions. Events are observability, not protocol logic — they don't touch the math verified here. The 16 Kani harnesses are unchanged from v3.1.0 and continue to pass against the v4.0.0 binary.
 
 ## What Is Verified
 

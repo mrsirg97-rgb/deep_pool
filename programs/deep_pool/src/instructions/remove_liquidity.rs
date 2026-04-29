@@ -9,6 +9,7 @@ use anchor_spl::{
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::events::LiquidityRemoved;
 use crate::math;
 use crate::state::Pool;
 
@@ -19,6 +20,7 @@ pub struct RemoveLiquidityArgs {
     pub min_tokens_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: RemoveLiquidityArgs)]
 pub struct RemoveLiquidity<'info> {
@@ -29,20 +31,20 @@ pub struct RemoveLiquidity<'info> {
         seeds = [POOL_SEED, pool.config.as_ref(), pool.token_mint.as_ref()],
         bump = pool.bump,
     )]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.token_mint)]
-    pub token_mint: InterfaceAccount<'info, MintInterface>,
+    pub token_mint: Box<InterfaceAccount<'info, MintInterface>>,
     #[account(mut, address = pool.token_vault)]
-    pub token_vault: InterfaceAccount<'info, TokenAccountInterface>,
+    pub token_vault: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     #[account(mut, address = pool.lp_mint)]
-    pub lp_mint: InterfaceAccount<'info, MintInterface>,
+    pub lp_mint: Box<InterfaceAccount<'info, MintInterface>>,
     #[account(
         mut,
         associated_token::mint = token_mint,
         associated_token::authority = provider,
         associated_token::token_program = token_program,
     )]
-    pub provider_token_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub provider_token_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     #[account(
         mut,
         associated_token::mint = lp_mint,
@@ -50,7 +52,7 @@ pub struct RemoveLiquidity<'info> {
         associated_token::token_program = token_program,
         constraint = provider_lp_account.amount >= args.lp_amount @ DeepPoolError::InsufficientLpTokens,
     )]
-    pub provider_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub provider_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -58,16 +60,11 @@ pub struct RemoveLiquidity<'info> {
 
 pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Result<()> {
     require!(args.lp_amount > 0, DeepPoolError::ZeroInput);
-
     let pool_info = ctx.accounts.pool.to_account_info();
     let sol_reserve = Pool::sol_reserve(&pool_info)?;
     let token_reserve = ctx.accounts.token_vault.amount;
     let lp_supply = ctx.accounts.lp_mint.supply;
-
-    require!(
-        sol_reserve > 0 && token_reserve > 0,
-        DeepPoolError::EmptyPool
-    );
+    require!(sol_reserve > 0 && token_reserve > 0, DeepPoolError::EmptyPool);
     require!(lp_supply > 0, DeepPoolError::EmptyPool);
 
     // 1. Compute proportional share
@@ -75,16 +72,9 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
         .ok_or(DeepPoolError::MathOverflow)?;
     let tokens_out = math::calc_lp_redeem(args.lp_amount, token_reserve, lp_supply)
         .ok_or(DeepPoolError::MathOverflow)?;
-
     // 2. Slippage checks
-    require!(
-        sol_out >= args.min_sol_out,
-        DeepPoolError::SolOutputSlippage
-    );
-    require!(
-        tokens_out >= args.min_tokens_out,
-        DeepPoolError::TokenOutputSlippage
-    );
+    require!(sol_out >= args.min_sol_out, DeepPoolError::SolOutputSlippage);
+    require!(tokens_out >= args.min_tokens_out, DeepPoolError::TokenOutputSlippage);
 
     // 3. Ensure pool retains minimum reserves after removal
     let sol_remaining = sol_reserve
@@ -93,10 +83,7 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
     let tokens_remaining = token_reserve
         .checked_sub(tokens_out)
         .ok_or(DeepPoolError::MathOverflow)?;
-    require!(
-        sol_remaining > 0 && tokens_remaining > 0,
-        DeepPoolError::MinimumLiquidityRequired
-    );
+    require!(sol_remaining > 0 && tokens_remaining > 0, DeepPoolError::MinimumLiquidityRequired);
 
     // 4. Burn LP tokens from provider
     token_interface::burn(
@@ -114,13 +101,9 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
     // 5. Transfer tokens from vault to provider (CPI — must happen before lamport manipulation)
     let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
-    let pool_seeds = &[
-        POOL_SEED,
-        config_key.as_ref(),
-        mint_key.as_ref(),
-        &[ctx.accounts.pool.bump],
-    ];
+    let pool_seeds = &[POOL_SEED,config_key.as_ref(),mint_key.as_ref(),&[ctx.accounts.pool.bump]];
     let signer_seeds = &[&pool_seeds[..]];
+    let provider_token_balance_before = ctx.accounts.provider_token_account.amount;
 
     token_interface::transfer_checked(
         CpiContext::new_with_signer(
@@ -137,12 +120,43 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
         ctx.accounts.token_mint.decimals,
     )?;
 
+    // Provider-side delta exposes Token-2022 transfer-fee leakage.
+    ctx.accounts.provider_token_account.reload()?;
+    let provider_received = ctx
+        .accounts
+        .provider_token_account
+        .amount
+        .checked_sub(provider_token_balance_before)
+        .ok_or(DeepPoolError::MathOverflow)?;
+
     // 6. Transfer SOL from pool PDA to provider (direct lamport — must be LAST, after all CPIs)
     ctx.accounts.pool.to_account_info().sub_lamports(sol_out)?;
     ctx.accounts
         .provider
         .to_account_info()
         .add_lamports(sol_out)?;
+
+    // Post-state for the event.
+    let sol_reserve_after = Pool::sol_reserve(&ctx.accounts.pool.to_account_info())?;
+    ctx.accounts.token_vault.reload()?;
+    let token_reserve_after = ctx.accounts.token_vault.amount;
+    ctx.accounts.lp_mint.reload()?;
+    let lp_supply_after = ctx.accounts.lp_mint.supply;
+    let pool_key = ctx.accounts.pool.key();
+    let provider_key = ctx.accounts.provider.key();
+
+    emit_cpi!(LiquidityRemoved {
+        pool: pool_key,
+        provider: provider_key,
+        lp_burned: args.lp_amount,
+        sol_out_gross: sol_out,
+        sol_out_net: sol_out,
+        tokens_out_gross: tokens_out,
+        tokens_out_net: provider_received,
+        sol_reserve_after,
+        token_reserve_after,
+        lp_supply_after,
+    });
 
     Ok(())
 }

@@ -9,6 +9,7 @@ use anchor_spl::{
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::events::PoolCreated;
 use crate::math;
 use crate::state::Pool;
 
@@ -18,6 +19,7 @@ pub struct CreatePoolArgs {
     pub initial_sol_amount: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: CreatePoolArgs)]
 pub struct CreatePool<'info> {
@@ -32,7 +34,7 @@ pub struct CreatePool<'info> {
         mint::token_program = token_program,
         constraint = token_mint.to_account_info().owner == &TOKEN_2022_PROGRAM_ID @ DeepPoolError::NotToken2022,
     )]
-    pub token_mint: InterfaceAccount<'info, MintInterface>,
+    pub token_mint: Box<InterfaceAccount<'info, MintInterface>>,
     // Pool state PDA — one per config per mint.
     #[account(
         init,
@@ -41,7 +43,7 @@ pub struct CreatePool<'info> {
         seeds = [POOL_SEED, config.key().as_ref(), token_mint.key().as_ref()],
         bump,
     )]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     // Token vault — PDA-derived, owned by pool.
     #[account(
         init,
@@ -52,7 +54,7 @@ pub struct CreatePool<'info> {
         seeds = [VAULT_SEED, pool.key().as_ref()],
         bump,
     )]
-    pub token_vault: InterfaceAccount<'info, TokenAccountInterface>,
+    pub token_vault: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     // LP token mint — authority is pool PDA.
     #[account(
         init,
@@ -64,7 +66,7 @@ pub struct CreatePool<'info> {
         seeds = [LP_MINT_SEED, pool.key().as_ref()],
         bump,
     )]
-    pub lp_mint: InterfaceAccount<'info, MintInterface>,
+    pub lp_mint: Box<InterfaceAccount<'info, MintInterface>>,
     // Creator's token account — source of initial deposit.
     #[account(
         mut,
@@ -72,7 +74,7 @@ pub struct CreatePool<'info> {
         associated_token::authority = creator,
         associated_token::token_program = token_program,
     )]
-    pub creator_token_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub creator_token_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     // Creator's LP token account — receives 80% of LP tokens.
     #[account(
         init_if_needed,
@@ -81,7 +83,7 @@ pub struct CreatePool<'info> {
         associated_token::authority = creator,
         associated_token::token_program = token_program,
     )]
-    pub creator_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub creator_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     // Pool PDA's LP account — holds 20% permanently (PDA can't call remove_liquidity).
     #[account(
         init_if_needed,
@@ -90,7 +92,7 @@ pub struct CreatePool<'info> {
         associated_token::authority = pool,
         associated_token::token_program = token_program,
     )]
-    pub pool_lp_account: InterfaceAccount<'info, TokenAccountInterface>,
+    pub pool_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -108,7 +110,7 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
 
     // 1. Transfer tokens from creator to vault (measure net for Token-2022 fee)
     let vault_before = ctx.accounts.token_vault.amount;
-
+    
     token_interface::transfer_checked(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -208,15 +210,41 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     )?;
 
     // 5. Initialize pool state
-    let pool = &mut ctx.accounts.pool;
-    pool.config = ctx.accounts.config.key();
-    pool.token_mint = ctx.accounts.token_mint.key();
-    pool.token_vault = ctx.accounts.token_vault.key();
-    pool.lp_mint = ctx.accounts.lp_mint.key();
-    pool.initial_sol = args.initial_sol_amount;
-    pool.initial_tokens = net_tokens;
-    pool.total_swaps = 0;
-    pool.bump = ctx.bumps.pool;
+    ctx.accounts.pool.config = ctx.accounts.config.key();
+    ctx.accounts.pool.token_mint = ctx.accounts.token_mint.key();
+    ctx.accounts.pool.token_vault = ctx.accounts.token_vault.key();
+    ctx.accounts.pool.lp_mint = ctx.accounts.lp_mint.key();
+    ctx.accounts.pool.initial_sol = args.initial_sol_amount;
+    ctx.accounts.pool.initial_tokens = net_tokens;
+    ctx.accounts.pool.total_swaps = 0;
+    ctx.accounts.pool.bump = ctx.bumps.pool;
+
+    // Post-state for the event. Vault was reloaded after the inbound transfer
+    // and untouched since, so vault.amount is the live post-state.
+    let sol_reserve_after = Pool::sol_reserve(&ctx.accounts.pool.to_account_info())?;
+    let token_reserve_after = ctx.accounts.token_vault.amount;
+    let pool_key = ctx.accounts.pool.key();
+    let config_key = ctx.accounts.config.key();
+    let token_mint_key = ctx.accounts.token_mint.key();
+    let lp_mint_key = ctx.accounts.lp_mint.key();
+    let creator_key = ctx.accounts.creator.key();
+
+    emit_cpi!(PoolCreated {
+        pool: pool_key,
+        config: config_key,
+        token_mint: token_mint_key,
+        lp_mint: lp_mint_key,
+        creator: creator_key,
+        sol_in_gross: args.initial_sol_amount,
+        sol_in_net: args.initial_sol_amount,
+        tokens_in_gross: args.initial_token_amount,
+        tokens_in_net: net_tokens,
+        sol_reserve_after,
+        token_reserve_after,
+        lp_supply_after: lp_total,
+        lp_to_creator,
+        lp_locked: lp_burn,
+    });
 
     Ok(())
 }

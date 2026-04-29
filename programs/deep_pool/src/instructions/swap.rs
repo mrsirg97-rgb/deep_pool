@@ -9,6 +9,7 @@ use anchor_spl::{
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::events::SwapExecuted;
 use crate::math;
 use crate::state::Pool;
 
@@ -20,6 +21,7 @@ pub struct SwapArgs {
     pub buy: bool,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: SwapArgs)]
 pub struct Swap<'info> {
@@ -73,15 +75,19 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
+    let amount_in_gross: u64;
+    let amount_in_net: u64;
+    let amount_out_gross: u64;
+    let amount_out_net: u64;
+    let fee: u64;
     if args.buy {
         // SOL → Token. The System.transfer below is the only path that credits
         // the pool, so sol_reserve is the true pre-trade reserve.
-        let fee = math::calc_swap_fee(args.amount_in).ok_or(DeepPoolError::MathOverflow)?;
+        let pool_fee = math::calc_swap_fee(args.amount_in).ok_or(DeepPoolError::MathOverflow)?;
         let effective_in = args
             .amount_in
-            .checked_sub(fee)
+            .checked_sub(pool_fee)
             .ok_or(DeepPoolError::MathOverflow)?;
-
         let tokens_out = math::calc_swap_output(effective_in, sol_reserve, token_reserve)
             .ok_or(DeepPoolError::MathOverflow)?;
         require!(
@@ -89,6 +95,8 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
             DeepPoolError::SlippageExceeded
         );
         require!(tokens_out < token_reserve, DeepPoolError::EmptyPool);
+
+        let user_token_balance_before = ctx.accounts.user_token_account.amount;
 
         // Works for wallets directly and for program-derived system-owned PDAs
         // via invoke_signed. The system program enforces that `from` actually
@@ -119,6 +127,20 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
             tokens_out,
             ctx.accounts.token_mint.decimals,
         )?;
+
+        // User-side delta exposes Token-2022 transfer-fee leakage.
+        ctx.accounts.user_token_account.reload()?;
+        let user_received = ctx
+            .accounts
+            .user_token_account
+            .amount
+            .checked_sub(user_token_balance_before)
+            .ok_or(DeepPoolError::MathOverflow)?;
+        amount_in_gross = args.amount_in;
+        amount_in_net = args.amount_in;
+        amount_out_gross = tokens_out;
+        amount_out_net = user_received;
+        fee = pool_fee;
     } else {
         // Token → SOL
         // 1. Transfer tokens from user to vault (measure net received)
@@ -146,13 +168,11 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
             .checked_sub(vault_before)
             .ok_or(DeepPoolError::MathOverflow)?;
         require!(net_received > 0, DeepPoolError::ZeroInput);
-
         // 2. Apply fee on net received tokens
-        let fee = math::calc_swap_fee(net_received).ok_or(DeepPoolError::MathOverflow)?;
+        let pool_fee = math::calc_swap_fee(net_received).ok_or(DeepPoolError::MathOverflow)?;
         let effective_in = net_received
-            .checked_sub(fee)
+            .checked_sub(pool_fee)
             .ok_or(DeepPoolError::MathOverflow)?;
-
         // 3. Constant product output
         let sol_out = math::calc_swap_output(effective_in, token_reserve, sol_reserve)
             .ok_or(DeepPoolError::MathOverflow)?;
@@ -162,21 +182,63 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         // 4. Transfer SOL from pool PDA to sol_source. Direct lamport credit is
         // owner-agnostic, so sol_source may be program-owned here (e.g. a CPI
         // caller routing proceeds back to their own state PDA).
+        //
+        // We use direct lamport manipulation here (not System.transfer) because
+        // System.transfer requires from.owner == system_program, and the pool PDA
+        // is program-owned. The rent-exempt floor is enforced explicitly:
+        // sol_reserve = pool.lamports - rent_exempt, and sol_out < sol_reserve
+        // was checked above, so pool.lamports - sol_out >= rent_exempt + 1.
         let pool_account = ctx.accounts.pool.to_account_info();
+        let rent = Rent::get()?;
+        let rent_exempt = rent.minimum_balance(Pool::LEN);
         **pool_account.try_borrow_mut_lamports()? = pool_account
             .lamports()
             .checked_sub(sol_out)
             .ok_or(DeepPoolError::MathOverflow)?;
+        require!(
+            **pool_account.try_borrow_mut_lamports()? >= rent_exempt,
+            DeepPoolError::MinimumLiquidityRequired
+        );
+
         let sink = ctx.accounts.sol_source.to_account_info();
         **sink.try_borrow_mut_lamports()? = sink
             .lamports()
             .checked_add(sol_out)
             .ok_or(DeepPoolError::MathOverflow)?;
+        amount_in_gross = args.amount_in;
+        amount_in_net = net_received;
+        amount_out_gross = sol_out;
+        amount_out_net = sol_out;
+        fee = pool_fee;
     }
 
     // Update swap counter
-    let pool = &mut ctx.accounts.pool;
-    pool.total_swaps = pool.total_swaps.saturating_add(1);
+    ctx.accounts.pool.total_swaps = ctx.accounts.pool.total_swaps.saturating_add(1);
+    let total_swaps = ctx.accounts.pool.total_swaps;
+
+    // Post-trade reserves — read live so the event reflects committed state.
+    let sol_reserve_after = Pool::sol_reserve(&ctx.accounts.pool.to_account_info())?;
+    ctx.accounts.token_vault.reload()?;
+    let token_reserve_after = ctx.accounts.token_vault.amount;
+
+    let pool_key = ctx.accounts.pool.key();
+    let user_key = ctx.accounts.user.key();
+    let sol_source_key = ctx.accounts.sol_source.key();
+
+    emit_cpi!(SwapExecuted {
+        pool: pool_key,
+        user: user_key,
+        sol_source: sol_source_key,
+        buy: args.buy,
+        amount_in_gross,
+        amount_in_net,
+        amount_out_gross,
+        amount_out_net,
+        fee,
+        sol_reserve_after,
+        token_reserve_after,
+        total_swaps,
+    });
 
     Ok(())
 }

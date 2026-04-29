@@ -9,6 +9,7 @@ use anchor_spl::{
 
 use crate::constants::*;
 use crate::error::DeepPoolError;
+use crate::events::LiquidityAdded;
 use crate::math;
 use crate::state::Pool;
 
@@ -16,8 +17,10 @@ use crate::state::Pool;
 pub struct AddLiquidityArgs {
     pub token_amount: u64,
     pub max_sol_amount: u64,
+    pub min_lp_out: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: AddLiquidityArgs)]
 pub struct AddLiquidity<'info> {
@@ -50,7 +53,7 @@ pub struct AddLiquidity<'info> {
         associated_token::token_program = token_program,
     )]
     pub provider_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
-    // Pool PDA's LP account — receives 20% (permanently locked).
+    // Pool PDA's LP account — receives 7.5% (permanently locked).
     #[account(
         mut,
         associated_token::mint = lp_mint,
@@ -126,8 +129,12 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     let lp_amount = math::calc_lp_mint(lp_supply, net_tokens, token_reserve)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(lp_amount > 0, DeepPoolError::ZeroDeposit);
+    require!(
+        lp_amount >= args.min_lp_out,
+        DeepPoolError::TokenOutputSlippage
+    );
 
-    // 5. Burn 20% of LP — permanently locked in the pool
+    // 5. Lock 7.5% of LP in the pool PDA — permanently inaccessible
     let lp_burn = (lp_amount as u128)
         .checked_mul(LP_LOCK_PROVIDER_BPS as u128)
         .ok_or(DeepPoolError::MathOverflow)?
@@ -136,10 +143,9 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     let lp_to_provider = lp_amount
         .checked_sub(lp_burn)
         .ok_or(DeepPoolError::MathOverflow)?;
-
     require!(lp_to_provider > 0, DeepPoolError::ZeroDeposit);
 
-    // 6. Mint LP: 80% to provider, 20% to pool PDA (permanently locked)
+    // 6. Mint LP: 92.5% to provider, 7.5% to pool PDA (permanently locked)
     let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
     let pool_seeds = &[
@@ -150,7 +156,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     ];
     let signer_seeds = &[&pool_seeds[..]];
 
-    // 80% to provider
+    // 92.5% to provider
     token_interface::mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -164,7 +170,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
         lp_to_provider,
     )?;
 
-    // 20% to pool PDA — locked forever
+    // 7.5% to pool PDA — locked forever
     token_interface::mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -177,6 +183,29 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
         ),
         lp_burn,
     )?;
+
+    // Post-state for the event. Vault was reloaded after the inbound transfer
+    // and untouched since; lp_mint reloaded to capture post-mint supply.
+    let sol_reserve_after = Pool::sol_reserve(&ctx.accounts.pool.to_account_info())?;
+    let token_reserve_after = ctx.accounts.token_vault.amount;
+    ctx.accounts.lp_mint.reload()?;
+    let lp_supply_after = ctx.accounts.lp_mint.supply;
+    let pool_key = ctx.accounts.pool.key();
+    let provider_key = ctx.accounts.provider.key();
+
+    emit_cpi!(LiquidityAdded {
+        pool: pool_key,
+        provider: provider_key,
+        sol_in_gross: sol_required,
+        sol_in_net: sol_required,
+        tokens_in_gross: args.token_amount,
+        tokens_in_net: net_tokens,
+        lp_to_provider,
+        lp_locked: lp_burn,
+        sol_reserve_after,
+        token_reserve_after,
+        lp_supply_after,
+    });
 
     Ok(())
 }
