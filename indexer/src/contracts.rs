@@ -75,7 +75,6 @@ pub struct SwapExecuted {
     pub fee: u64,
     pub sol_reserve_after: u64,
     pub token_reserve_after: u64,
-    pub total_swaps: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -157,7 +156,6 @@ pub struct SwapRow {
     pub fee: i64,
     pub sol_reserve_after: i64,
     pub token_reserve_after: i64,
-    pub total_swaps: i64,
     pub slot: i64,
     pub signature: String,
     pub inner_ix_idx: i32,
@@ -227,7 +225,6 @@ pub struct NewSwapRow {
     pub fee: i64,
     pub sol_reserve_after: i64,
     pub token_reserve_after: i64,
-    pub total_swaps: i64,
     pub slot: i64,
     pub signature: String,
     pub inner_ix_idx: i32,

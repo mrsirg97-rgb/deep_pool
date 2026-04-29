@@ -6,7 +6,6 @@ export interface PoolState {
   lpMint: string
   initialSol: number
   initialTokens: number
-  totalSwaps: number
   solReserve: number
   tokenReserve: number
   price: number // SOL per token (display units)

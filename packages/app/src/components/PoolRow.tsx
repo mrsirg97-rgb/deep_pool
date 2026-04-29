@@ -30,9 +30,6 @@ export function PoolRow({ pool }: { pool: PoolState }) {
         <div className="font-mono" style={{ fontSize: '13px', fontWeight: 600 }}>
           {pool.tokenMint.slice(0, 4)}...{pool.tokenMint.slice(-4)}
         </div>
-        <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-          {pool.totalSwaps} swaps
-        </div>
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
         <div className="font-mono" style={{ fontSize: '13px', fontWeight: 500 }}>

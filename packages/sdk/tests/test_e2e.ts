@@ -210,7 +210,6 @@ const main = async () => {
     log(`  SOL reserve: ${poolState.solReserve / LAMPORTS_PER_SOL} SOL`)
     log(`  Token reserve: ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens`)
     log(`  Price: ${poolState.price.toFixed(10)} SOL/token`)
-    log(`  Total swaps: ${poolState.totalSwaps}`)
     ok('read pool')
   } else {
     fail('read pool', 'pool not found')
@@ -308,7 +307,6 @@ const main = async () => {
       fail('k non-decreasing after sell', `k decreased`)
     }
     log(`  Price: ${poolState.price.toFixed(10)} SOL/token`)
-    log(`  Total swaps: ${poolState.totalSwaps}`)
   }
 
   // ------------------------------------------------------------------
@@ -602,7 +600,6 @@ const main = async () => {
     log(`    SOL: ${poolState.solReserve / LAMPORTS_PER_SOL} SOL`)
     log(`    Tokens: ${poolState.tokenReserve / TOKEN_MULTIPLIER}`)
     log(`    Price: ${poolState.price.toFixed(10)} SOL/token`)
-    log(`    Swaps: ${poolState.totalSwaps}`)
   }
 
   // ------------------------------------------------------------------

@@ -98,13 +98,12 @@ SwapExecuted {
     fee:                 u64,      // pool fee, in input-token units (separate from Token-2022)
     sol_reserve_after:   u64,
     token_reserve_after: u64,
-    total_swaps:         u64,      // pool.total_swaps after increment
 }
 ```
 
 `fee` is the 0.25% pool fee that compounds back into the pool. Token-2022 transfer-fee leakage is recoverable from `(gross − net)` on whichever side is the token leg.
 
-No `lp_supply` — unchanged on swaps. Indexers carry it forward from the most recent liquidity event.
+No `lp_supply` — unchanged on swaps. Indexers carry it forward from the most recent liquidity event. No `total_swaps` either — lifetime swap count is a vanity metric; consumers that want activity numbers should use windowed indexer queries (`COUNT(*) FROM swaps WHERE pool_id = $1 AND created_at > now() - interval '24h'`).
 
 ## Out of scope
 

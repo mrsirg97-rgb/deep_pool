@@ -65,7 +65,7 @@ pub async fn set(
         "INSERT INTO swaps (
             pool_id, user_pk, sol_source, is_buy,
             amount_in_gross, amount_in_net, amount_out_gross, amount_out_net,
-            fee, sol_reserve_after, token_reserve_after, total_swaps,
+            fee, sol_reserve_after, token_reserve_after,
             slot, signature, inner_ix_idx, created_at
          ) ",
     );
@@ -81,7 +81,6 @@ pub async fn set(
             .push_bind(row.fee)
             .push_bind(row.sol_reserve_after)
             .push_bind(row.token_reserve_after)
-            .push_bind(row.total_swaps)
             .push_bind(row.slot)
             .push_bind(&row.signature)
             .push_bind(row.inner_ix_idx)

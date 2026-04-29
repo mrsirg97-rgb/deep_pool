@@ -1,4 +1,4 @@
-export { FEE_DENOMINATOR, PROGRAM_ID, SWAP_FEE_BPS } from './constants'
+export { FEE_DENOMINATOR, POOL_ACCOUNT_SIZE, PROGRAM_ID, SWAP_FEE_BPS } from './constants'
 export {
   getEventAuthorityPda,
   getLpMintPda,

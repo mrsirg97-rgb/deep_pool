@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
-import { getPoolByAddress, PROGRAM_ID } from 'deeppoolsdk'
+import { getPoolByAddress, POOL_ACCOUNT_SIZE, PROGRAM_ID } from 'deeppoolsdk'
 import type { PoolState } from 'deeppoolsdk'
 import { Header } from '@/components/Header'
 import { PoolRow } from '@/components/PoolRow'
@@ -19,7 +19,7 @@ export default function Home() {
       try {
         // Find all pool accounts owned by the program
         const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
-          filters: [{ dataSize: 161 }], // Pool::LEN = 8 + 32(config) + 32 + 32 + 32 + 8 + 8 + 8 + 1
+          filters: [{ dataSize: POOL_ACCOUNT_SIZE }],
         })
 
         const poolStates: PoolState[] = []

@@ -120,7 +120,6 @@ pub struct Pool {
     pub lp_mint: Pubkey,
     pub initial_sol: u64,
     pub initial_tokens: u64,
-    pub total_swaps: u64,
     pub bump: u8,
 }
 ```

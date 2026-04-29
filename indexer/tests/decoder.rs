@@ -123,7 +123,6 @@ fn swap_executed_roundtrip() {
         fee: 250_000,
         sol_reserve_after: 1_100_000_000,
         token_reserve_after: 9_092_975_676_291,
-        total_swaps: 1,
     };
     let data = frame(&discs.swap_executed, &event);
 
@@ -134,7 +133,6 @@ fn swap_executed_roundtrip() {
     assert!(s.buy);
     assert_eq!(s.amount_in_gross, 100_000_000);
     assert_eq!(s.fee, 250_000);
-    assert_eq!(s.total_swaps, 1);
 }
 
 #[test]

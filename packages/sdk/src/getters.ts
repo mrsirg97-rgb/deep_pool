@@ -1,7 +1,7 @@
 import { BorshCoder, Idl } from '@coral-xyz/anchor'
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import idl from './deep_pool.json'
-import { FEE_DENOMINATOR, PROGRAM_ID, SWAP_FEE_BPS } from './constants'
+import { FEE_DENOMINATOR, POOL_ACCOUNT_SIZE, PROGRAM_ID, SWAP_FEE_BPS } from './constants'
 import { PoolState, SwapQuote } from './types'
 import { getPoolPda } from './pda'
 
@@ -39,7 +39,6 @@ export const getPool = async (
     lpMint: pool.lp_mint.toBase58(),
     initialSol: Number(pool.initial_sol.toString()),
     initialTokens: Number(pool.initial_tokens.toString()),
-    totalSwaps: Number(pool.total_swaps.toString()),
     solReserve,
     tokenReserve,
     price,
@@ -75,7 +74,6 @@ export const getPoolByAddress = async (
     lpMint: pool.lp_mint.toBase58(),
     initialSol: Number(pool.initial_sol.toString()),
     initialTokens: Number(pool.initial_tokens.toString()),
-    totalSwaps: Number(pool.total_swaps.toString()),
     solReserve,
     tokenReserve,
     price,
@@ -88,7 +86,7 @@ export const getPoolsForMint = async (
 ): Promise<PoolState[]> => {
   const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
     filters: [
-      { dataSize: 161 }, // Pool::LEN with config field
+      { dataSize: POOL_ACCOUNT_SIZE },
       { memcmp: { offset: 40, bytes: tokenMint } }, // token_mint at offset 8 (disc) + 32 (config)
     ],
   })

@@ -5,7 +5,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
 import Link from 'next/link'
-import { getPoolByAddress, getLpMintPda, PROGRAM_ID } from 'deeppoolsdk'
+import { getPoolByAddress, getLpMintPda, POOL_ACCOUNT_SIZE, PROGRAM_ID } from 'deeppoolsdk'
 import type { PoolState } from 'deeppoolsdk'
 import { Header } from '@/components/Header'
 
@@ -45,7 +45,7 @@ export default function PortfolioPage() {
         // Find all pool accounts to get LP mints
         console.log('Fetching pool accounts...')
         const poolAccounts = await connection.getProgramAccounts(PROGRAM_ID, {
-          filters: [{ dataSize: 161 }],
+          filters: [{ dataSize: POOL_ACCOUNT_SIZE }],
         })
         console.log(`Found ${poolAccounts.length} pools`)
 

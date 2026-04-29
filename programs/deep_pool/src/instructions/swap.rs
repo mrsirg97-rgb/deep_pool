@@ -212,10 +212,6 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         fee = pool_fee;
     }
 
-    // Update swap counter
-    ctx.accounts.pool.total_swaps = ctx.accounts.pool.total_swaps.saturating_add(1);
-    let total_swaps = ctx.accounts.pool.total_swaps;
-
     // Post-trade reserves — read live so the event reflects committed state.
     let sol_reserve_after = Pool::sol_reserve(&ctx.accounts.pool.to_account_info())?;
     ctx.accounts.token_vault.reload()?;
@@ -237,7 +233,6 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         fee,
         sol_reserve_after,
         token_reserve_after,
-        total_swaps,
     });
 
     Ok(())

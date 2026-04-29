@@ -216,7 +216,6 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     ctx.accounts.pool.lp_mint = ctx.accounts.lp_mint.key();
     ctx.accounts.pool.initial_sol = args.initial_sol_amount;
     ctx.accounts.pool.initial_tokens = net_tokens;
-    ctx.accounts.pool.total_swaps = 0;
     ctx.accounts.pool.bump = ctx.bumps.pool;
 
     // Post-state for the event. Vault was reloaded after the inbound transfer

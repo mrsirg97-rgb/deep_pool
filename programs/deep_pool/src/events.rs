@@ -60,5 +60,4 @@ pub struct SwapExecuted {
     pub fee: u64,
     pub sol_reserve_after: u64,
     pub token_reserve_after: u64,
-    pub total_swaps: u64,
 }

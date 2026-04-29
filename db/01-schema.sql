@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS swaps (
     fee                  BIGINT NOT NULL,
     sol_reserve_after    BIGINT NOT NULL,
     token_reserve_after  BIGINT NOT NULL,
-    total_swaps          BIGINT NOT NULL,
     slot                 BIGINT NOT NULL,
     signature            TEXT NOT NULL,
     inner_ix_idx         INT NOT NULL,

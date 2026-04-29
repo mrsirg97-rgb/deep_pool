@@ -71,7 +71,6 @@ fn sample_swap(pool_id: i32, sig: &str, idx: i32) -> NewSwapRow {
         fee: 250_000,
         sol_reserve_after: 1_100_000_000,
         token_reserve_after: 9_100_000_000_000,
-        total_swaps: 1,
         slot: 100,
         signature: sig.to_string(),
         inner_ix_idx: idx,

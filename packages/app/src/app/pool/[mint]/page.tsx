@@ -105,12 +105,6 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
                 {pool.price.toFixed(9)}
               </div>
             </div>
-            <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--surface)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Total Swaps</div>
-              <div className="font-mono" style={{ fontSize: '18px', fontWeight: 600 }}>
-                {pool.totalSwaps}
-              </div>
-            </div>
           </div>
         </div>
 

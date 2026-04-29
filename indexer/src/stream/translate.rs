@@ -62,7 +62,6 @@ pub fn new_swap(s: &SwapExecuted, pool_id: i32, de: &DecodedEvent) -> NewSwapRow
         fee: s.fee as i64,
         sol_reserve_after: s.sol_reserve_after as i64,
         token_reserve_after: s.token_reserve_after as i64,
-        total_swaps: s.total_swaps as i64,
         slot: de.slot,
         signature: de.signature.clone(),
         inner_ix_idx: de.inner_ix_idx,

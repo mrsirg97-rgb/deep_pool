@@ -14,8 +14,6 @@ pub struct Pool {
     pub initial_sol: u64,
     // Net tokens deposited at creation (immutable reference).
     pub initial_tokens: u64,
-    // Total swaps executed.
-    pub total_swaps: u64,
     // PDA bump seed.
     pub bump: u8,
 }
@@ -28,7 +26,6 @@ impl Pool {
         + 32  // lp_mint
         + 8   // initial_sol
         + 8   // initial_tokens
-        + 8   // total_swaps
         + 1; // bump
 
     // SOL reserve = PDA lamports minus rent-exempt minimum.
