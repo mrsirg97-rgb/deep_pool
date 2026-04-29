@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "4.0.0",
+    "version": "4.1.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -1339,10 +1339,6 @@
             "type": "u64"
           },
           {
-            "name": "total_swaps",
-            "type": "u64"
-          },
-          {
             "name": "bump",
             "type": "u8"
           }
@@ -1500,10 +1496,6 @@
           },
           {
             "name": "token_reserve_after",
-            "type": "u64"
-          },
-          {
-            "name": "total_swaps",
             "type": "u64"
           }
         ]
