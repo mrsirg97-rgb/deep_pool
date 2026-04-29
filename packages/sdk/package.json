@@ -1,6 +1,6 @@
 {
   "name": "deeppoolsdk",
-  "version": "4.1.2",
+  "version": "4.3.1",
   "description": "sdk for interacting with deep_pool on chain",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,7 +9,9 @@
     "test": "npx tsx tests/test_e2e.ts",
     "test:sim": "npx tsx tests/test_sim.ts",
     "test:devnet": "npx tsx tests/test_devnet_e2e.ts",
-    "format": "prettier --write src/"
+    "test:local": "npx tsx tests/test_local_e2e.ts",
+    "test:bus": "npx tsx tests/test_bus.ts",
+    "format": "prettier --write src/ tests/"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

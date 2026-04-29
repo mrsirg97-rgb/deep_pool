@@ -1,23 +1,30 @@
 /**
- * DeepPool Devnet E2E
+ * DeepPool Local Stack E2E
  *
- * Submits the four ix paths on Solana devnet and verifies each one flows
- * end-to-end through the indexer:
+ * Submits txs to Solana devnet, then exercises the SDK's indexer-first
+ * read path against a local docker-compose indexer. Validates the full
+ * loop:
  *
- *   chain → Helius Laserstream → decoder → writer → Postgres → API
+ *   chain (devnet) → Helius Laserstream → local indexer → Postgres
+ *                                                              ↓
+ *                       SDK getPool({ indexer }) → /api/pools/:pubkey
+ *
+ * Also exercises the indexer-only readers (`getSwapHistory`,
+ * `getLiquidityHistory`) which have no RPC equivalent.
  *
  * Run:
- *   # terminal 1: docker compose up postgres
- *   # terminal 2: cd indexer && cargo run -- run
- *   # terminal 3:
- *   pnpm --filter deeppoolsdk test:devnet
+ *   # terminal 1: bring up the docker compose stack
+ *   docker compose --profile full up --build
+ *
+ *   # terminal 2:
+ *   pnpm --filter deeppoolsdk test:local
  *
  * Requirements:
  *   - Devnet wallet (~/.config/solana/id.json) with ≥2 SOL
- *   - Indexer running locally, listening on Helius devnet Laserstream
- *   - Postgres up and migrated (compose handles it on first boot)
+ *   - Docker compose stack running (postgres + indexer + app)
+ *   - Indexer's `LASERSTREAM_*` env vars configured for devnet
  *
- * INDEXER_URL env var overrides the API target (default http://localhost:8080).
+ * INDEXER_URL env var overrides the indexer target (default http://localhost:8080).
  */
 
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from '@solana/web3.js'
@@ -33,9 +40,14 @@ import {
   buildCreatePoolTransaction,
   buildRemoveLiquidityTransaction,
   buildSwapTransaction,
+  getLiquidityHistory,
   getLpMintPda,
+  getPool,
+  getPoolByAddress,
   getPoolPda,
+  getSwapHistory,
 } from '../src/index'
+import type { PoolState } from '../src/index'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -50,12 +62,7 @@ const WALLET_PATH = path.join(os.homedir(), '.config/solana/id.json')
 const TOKEN_DECIMALS = 6
 const TOKEN_MULTIPLIER = 10 ** TOKEN_DECIMALS
 
-// Budget for one full test run (rent + pool deposit + swap fees + headroom).
 const MIN_WALLET_SOL = 2
-
-// How long to wait for the indexer to ingest each tx. Devnet slot ≈ 400ms,
-// Laserstream hop ≈ 50-200ms, indexer write ≈ tens of ms. ~3s typical;
-// 30s is generous slack for first-boot warmup and devnet variability.
 const INDEXER_TIMEOUT_MS = 30_000
 
 // ============================================================================
@@ -88,29 +95,25 @@ const signAndSend = async (
   return sig
 }
 
-// Poll the indexer API until predicate matches or we time out.
-const waitForIndexer = async <T>(
-  pathname: string,
-  predicate: (rows: T[]) => boolean,
-): Promise<T[]> => {
+// Poll the indexer-first SDK read until predicate matches or we time out.
+// Lets us assert on the SDK's view of indexer state, not just raw indexer HTTP.
+const waitForIndexerRead = async <T>(
+  read: () => Promise<T | null>,
+  predicate: (value: T) => boolean,
+): Promise<T> => {
   const start = Date.now()
   let lastErr: any = null
   while (Date.now() - start < INDEXER_TIMEOUT_MS) {
     try {
-      const resp = await fetch(`${INDEXER_URL}${pathname}`)
-      if (resp.ok) {
-        const rows: T[] = await resp.json()
-        if (predicate(rows)) return rows
-      } else {
-        lastErr = `HTTP ${resp.status}`
-      }
+      const value = await read()
+      if (value && predicate(value)) return value
     } catch (e) {
       lastErr = e
     }
     await sleep(500)
   }
   throw new Error(
-    `indexer timeout after ${INDEXER_TIMEOUT_MS}ms on ${pathname}` +
+    `indexer read timeout after ${INDEXER_TIMEOUT_MS}ms` +
       (lastErr ? ` (last error: ${lastErr})` : ''),
   )
 }
@@ -121,7 +124,7 @@ const waitForIndexer = async <T>(
 
 const main = async () => {
   console.log('='.repeat(60))
-  console.log('DeepPool Devnet E2E')
+  console.log('DeepPool Local Stack E2E')
   console.log('='.repeat(60))
 
   const connection = new Connection(DEVNET_RPC, 'confirmed')
@@ -148,8 +151,31 @@ const main = async () => {
     log(`  ✗ ${name} — ${err.message || err}`)
   }
 
+  // Generic agreement check between indexer-first and RPC reads. They should
+  // converge once the indexer has caught up.
+  const assertReadsAgree = (name: string, fromIndexer: PoolState, fromRpc: PoolState) => {
+    const fields: (keyof PoolState)[] = [
+      'address',
+      'config',
+      'tokenMint',
+      'tokenVault',
+      'lpMint',
+      'initialSol',
+      'initialTokens',
+      'solReserve',
+      'tokenReserve',
+    ]
+    for (const f of fields) {
+      if (fromIndexer[f] !== fromRpc[f]) {
+        fail(name, `field ${String(f)} mismatch: indexer=${fromIndexer[f]} rpc=${fromRpc[f]}`)
+        return
+      }
+    }
+    ok(name, `${fields.length} fields match between indexer and rpc`)
+  }
+
   // ------------------------------------------------------------------
-  // 0. Sanity: indexer is reachable
+  // 0. Indexer health
   // ------------------------------------------------------------------
   log('\n[0] Indexer health check')
   try {
@@ -160,12 +186,12 @@ const main = async () => {
     ok('indexer reachable')
   } catch (e: any) {
     fail('indexer reachable', e)
-    log('Is the indexer running? Try: cd indexer && cargo run -- run')
+    log('Is the local stack up? Try: docker compose --profile full up --build')
     process.exit(1)
   }
 
   // ------------------------------------------------------------------
-  // 1. Create Token-2022 mint + mint tokens to wallet
+  // 1. Mint setup
   // ------------------------------------------------------------------
   log('\n[1] Create Token-2022 Mint')
   let mint: PublicKey
@@ -224,9 +250,9 @@ const main = async () => {
   }
 
   // ------------------------------------------------------------------
-  // 2. Create pool + verify on indexer
+  // 2. Create pool — verify via SDK indexer-first read
   // ------------------------------------------------------------------
-  log('\n[2] Create Pool')
+  log('\n[2] Create Pool + indexer-first read')
   const initialSol = 1 * LAMPORTS_PER_SOL
   const initialTokens = 10_000_000 * TOKEN_MULTIPLIER
   const [poolPda] = getPoolPda(wallet.publicKey, mint)
@@ -248,35 +274,51 @@ const main = async () => {
     process.exit(1)
   }
 
-  log('  waiting for indexer to ingest...')
+  // SDK indexer-first read — should hit /api/pools/:pubkey, return after ingest
+  log('  awaiting indexer ingest via SDK getPool({ indexer })...')
+  let poolFromIndexer: PoolState
   try {
-    const pools = await waitForIndexer<any>(`/api/pools?token_mint=${mint.toBase58()}`, (rows) =>
-      rows.some((r) => r.pubkey === poolPda.toBase58()),
+    poolFromIndexer = await waitForIndexerRead(
+      () =>
+        getPool(connection, mint.toBase58(), wallet.publicKey.toBase58(), {
+          indexer: INDEXER_URL,
+        }),
+      (p) => p.solReserve === initialSol,
     )
-    const found = pools.find((r) => r.pubkey === poolPda.toBase58())!
-    ok('indexer ingested pool', `pool_id=${found.pool_id} sol_initial=${found.sol_initial}`)
-  } catch (e: any) {
-    fail('indexer ingested pool', e)
-  }
-
-  // Pool detail endpoint composes pool + reserves
-  try {
-    const resp = await fetch(`${INDEXER_URL}/api/pools/${poolPda.toBase58()}`)
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const detail = await resp.json()
-    if (!detail.reserves) throw new Error('reserves missing')
     ok(
-      'detail endpoint',
-      `sol_reserve=${detail.reserves.sol_reserve} token_reserve=${detail.reserves.token_reserve}`,
+      'getPool({ indexer }) returns ingested pool',
+      `sol=${poolFromIndexer.solReserve} tokens=${poolFromIndexer.tokenReserve}`,
     )
   } catch (e: any) {
-    fail('detail endpoint', e)
+    fail('getPool({ indexer })', e)
+    process.exit(1)
+  }
+
+  // RPC read — should match indexer-first since both are post-tx-confirmed
+  try {
+    const poolFromRpc = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
+    if (!poolFromRpc) throw new Error('rpc returned null')
+    assertReadsAgree('getPool indexer ↔ rpc', poolFromIndexer, poolFromRpc)
+  } catch (e: any) {
+    fail('getPool rpc-vs-indexer compare', e)
+  }
+
+  // getPoolByAddress with indexer too
+  try {
+    const byAddr = await getPoolByAddress(connection, poolPda, {
+      indexer: INDEXER_URL,
+    })
+    if (!byAddr) throw new Error('returned null')
+    if (byAddr.address !== poolPda.toBase58()) throw new Error('address mismatch')
+    ok('getPoolByAddress({ indexer })', `address=${byAddr.address.slice(0, 8)}...`)
+  } catch (e: any) {
+    fail('getPoolByAddress({ indexer })', e)
   }
 
   // ------------------------------------------------------------------
-  // 3. Buy swap + verify on indexer
+  // 3. Buy swap → verify via getSwapHistory
   // ------------------------------------------------------------------
-  log('\n[3] Swap: Buy 0.1 SOL → tokens')
+  log('\n[3] Buy swap + getSwapHistory')
   let buySig: string
   try {
     const result = await buildSwapTransaction(connection, {
@@ -295,24 +337,30 @@ const main = async () => {
     process.exit(1)
   }
 
-  log('  waiting for indexer to ingest...')
+  log('  awaiting indexer ingest via getSwapHistory({ indexer })...')
   try {
-    const swaps = await waitForIndexer<any>(`/api/swaps?limit=20`, (rows) =>
-      rows.some((r) => r.signature === buySig),
-    )
-    const found = swaps.find((r) => r.signature === buySig)!
+    const swaps = await (async () => {
+      const start = Date.now()
+      while (Date.now() - start < INDEXER_TIMEOUT_MS) {
+        const rows = await getSwapHistory({ indexer: INDEXER_URL, limit: 20 })
+        if (rows.some((r) => r.signature === buySig)) return rows
+        await sleep(500)
+      }
+      throw new Error('timeout waiting for swap')
+    })()
+    const swap = swaps.find((r) => r.signature === buySig)!
     ok(
-      'indexer ingested swap',
-      `is_buy=${found.is_buy} amount_in=${found.amount_in_gross} amount_out=${found.amount_out_net}`,
+      'getSwapHistory returns the buy',
+      `is_buy=${swap.is_buy} amount_in=${swap.amount_in_gross} amount_out=${swap.amount_out_net}`,
     )
   } catch (e: any) {
-    fail('indexer ingested swap', e)
+    fail('getSwapHistory', e)
   }
 
   // ------------------------------------------------------------------
-  // 4. Add liquidity + verify on indexer
+  // 4. Add liquidity → verify via getLiquidityHistory(isAdd=true)
   // ------------------------------------------------------------------
-  log('\n[4] Add Liquidity')
+  log('\n[4] Add liquidity + getLiquidityHistory(isAdd=true)')
   let addSig: string
   try {
     const result = await buildAddLiquidityTransaction(connection, {
@@ -331,24 +379,35 @@ const main = async () => {
     process.exit(1)
   }
 
-  log('  waiting for indexer to ingest...')
+  log('  awaiting indexer ingest via getLiquidityHistory({ indexer, isAdd: true })...')
   try {
-    const events = await waitForIndexer<any>(`/api/liquidity?limit=20`, (rows) =>
-      rows.some((r) => r.signature === addSig),
-    )
-    const found = events.find((r) => r.signature === addSig)!
+    const events = await (async () => {
+      const start = Date.now()
+      while (Date.now() - start < INDEXER_TIMEOUT_MS) {
+        const rows = await getLiquidityHistory({
+          indexer: INDEXER_URL,
+          isAdd: true,
+          limit: 20,
+        })
+        if (rows.some((r) => r.signature === addSig)) return rows
+        await sleep(500)
+      }
+      throw new Error('timeout waiting for liquidity add')
+    })()
+    const event = events.find((r) => r.signature === addSig)!
+    if (!event.is_add) throw new Error('expected is_add=true filter')
     ok(
-      'indexer ingested liquidity add',
-      `is_add=${found.is_add} lp_user_amount=${found.lp_user_amount} lp_locked=${found.lp_locked}`,
+      'getLiquidityHistory(isAdd=true) returns the add',
+      `lp_user_amount=${event.lp_user_amount} lp_locked=${event.lp_locked}`,
     )
   } catch (e: any) {
-    fail('indexer ingested liquidity add', e)
+    fail('getLiquidityHistory(isAdd=true)', e)
   }
 
   // ------------------------------------------------------------------
-  // 5. Remove liquidity + verify on indexer
+  // 5. Remove liquidity → verify via getLiquidityHistory(isAdd=false)
   // ------------------------------------------------------------------
-  log('\n[5] Remove Liquidity (10% of LP)')
+  log('\n[5] Remove liquidity + getLiquidityHistory(isAdd=false)')
   let removeSig: string
   try {
     const [lpMint] = getLpMintPda(poolPda)
@@ -370,42 +429,54 @@ const main = async () => {
       minTokensOut: 0,
     })
     removeSig = await signAndSend(connection, wallet, result.transaction)
-    ok('remove liquidity', `sig=${removeSig.slice(0, 8)}... lpAmount=${lpAmount}`)
+    ok('remove liquidity', `sig=${removeSig.slice(0, 8)}...`)
   } catch (e: any) {
     fail('remove liquidity', e)
     if (e.logs) console.error('  Logs:', e.logs.slice(-5).join('\n        '))
     process.exit(1)
   }
 
-  log('  waiting for indexer to ingest...')
+  log('  awaiting indexer ingest via getLiquidityHistory({ indexer, isAdd: false })...')
   try {
-    const events = await waitForIndexer<any>(`/api/liquidity?limit=20`, (rows) =>
-      rows.some((r) => r.signature === removeSig),
-    )
-    const found = events.find((r) => r.signature === removeSig)!
+    const events = await (async () => {
+      const start = Date.now()
+      while (Date.now() - start < INDEXER_TIMEOUT_MS) {
+        const rows = await getLiquidityHistory({
+          indexer: INDEXER_URL,
+          isAdd: false,
+          limit: 20,
+        })
+        if (rows.some((r) => r.signature === removeSig)) return rows
+        await sleep(500)
+      }
+      throw new Error('timeout waiting for liquidity remove')
+    })()
+    const event = events.find((r) => r.signature === removeSig)!
+    if (event.is_add) throw new Error('expected is_add=false filter')
+    if (event.lp_locked !== 0) throw new Error('expected lp_locked=0 on remove')
     ok(
-      'indexer ingested liquidity remove',
-      `is_add=${found.is_add} lp_burned=${found.lp_user_amount}`,
+      'getLiquidityHistory(isAdd=false) returns the remove',
+      `lp_burned=${event.lp_user_amount} lp_locked=${event.lp_locked}`,
     )
   } catch (e: any) {
-    fail('indexer ingested liquidity remove', e)
+    fail('getLiquidityHistory(isAdd=false)', e)
   }
 
   // ------------------------------------------------------------------
-  // 6. Final state via indexer
+  // 6. Final SDK indexer-first read — assert post-state visible
   // ------------------------------------------------------------------
-  log('\n[6] Final pool state via indexer')
+  log('\n[6] Final indexer-first read of pool state')
   try {
-    const resp = await fetch(`${INDEXER_URL}/api/pools/${poolPda.toBase58()}`)
-    const detail = await resp.json()
-    log(`  pool:     ${detail.pool.pubkey}`)
+    const final = await getPoolByAddress(connection, poolPda, {
+      indexer: INDEXER_URL,
+    })
+    if (!final) throw new Error('null')
     log(
-      `  reserves: sol=${detail.reserves.sol_reserve} token=${detail.reserves.token_reserve} lp=${detail.reserves.lp_supply}`,
+      `  sol_reserve=${final.solReserve} token_reserve=${final.tokenReserve} price=${final.price.toFixed(10)}`,
     )
-    log(`  last_slot: ${detail.reserves.last_slot}`)
-    ok('final state queryable')
+    ok('post-mutation state visible via indexer')
   } catch (e: any) {
-    fail('final state queryable', e)
+    fail('post-mutation indexer read', e)
   }
 
   // ------------------------------------------------------------------

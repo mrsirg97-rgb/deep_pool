@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "format": "prettier --write src/"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
@@ -17,12 +18,13 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "deeppoolsdk": "^4.1.2"
+    "deeppoolsdk": "^4.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/react": "^19",
     "@types/node": "^22",
+    "prettier": "^3.8.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

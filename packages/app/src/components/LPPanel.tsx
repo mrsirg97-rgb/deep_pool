@@ -4,12 +4,24 @@ import { useState, useEffect } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync } from '@solana/spl-token'
-import { buildAddLiquidityTransaction, buildRemoveLiquidityTransaction, getLpMintPda, getPoolPda } from 'deeppoolsdk'
+import {
+  buildAddLiquidityTransaction,
+  buildRemoveLiquidityTransaction,
+  getLpMintPda,
+  getPoolPda,
+  TOKEN_2022_PROGRAM_ID,
+} from 'deeppoolsdk'
 import type { PoolState } from 'deeppoolsdk'
 
-const TOKEN_2022_PID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
-
-export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolState; onLpChange?: () => void }) {
+export const LPPanel = ({
+  mint,
+  pool,
+  onLpChange,
+}: {
+  mint: string
+  pool: PoolState
+  onLpChange?: () => void
+}) => {
   const { connection } = useConnection()
   const wallet = useWallet()
   const [tab, setTab] = useState<'add' | 'remove'>('add')
@@ -26,7 +38,12 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
       try {
         const [poolPda] = getPoolPda(new PublicKey(pool.config), new PublicKey(mint))
         const [lpMint] = getLpMintPda(poolPda)
-        const lpAta = getAssociatedTokenAddressSync(lpMint, wallet.publicKey!, false, TOKEN_2022_PID)
+        const lpAta = getAssociatedTokenAddressSync(
+          lpMint,
+          wallet.publicKey!,
+          false,
+          TOKEN_2022_PROGRAM_ID,
+        )
         const bal = await connection.getTokenAccountBalance(lpAta)
         setLpBalance(Number(bal.value.amount))
       } catch {
@@ -41,7 +58,7 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
   const solLamports = Math.floor(solNum * LAMPORTS_PER_SOL)
   const poolHasLiquidity = pool.solReserve > LAMPORTS_PER_SOL / 100 && pool.tokenReserve > 0
   const tokenRequired = poolHasLiquidity
-    ? Math.ceil(solLamports * pool.tokenReserve / pool.solReserve)
+    ? Math.ceil((solLamports * pool.tokenReserve) / pool.solReserve)
     : 0
 
   const handleAdd = async () => {
@@ -104,9 +121,14 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
       key={label}
       onClick={onClick}
       style={{
-        padding: '6px 12px', borderRadius: '6px',
-        border: '1px solid var(--border-color)', background: 'var(--surface)',
-        color: 'var(--foreground)', fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+        padding: '6px 12px',
+        borderRadius: '6px',
+        border: '1px solid var(--border-color)',
+        background: 'var(--surface)',
+        color: 'var(--foreground)',
+        fontSize: '13px',
+        fontWeight: 500,
+        cursor: 'pointer',
       }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-hover)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--surface)')}
@@ -121,8 +143,13 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
         <button
           onClick={() => setTab('add')}
           style={{
-            flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
-            fontWeight: 600, fontSize: '14px', cursor: 'pointer',
+            flex: 1,
+            padding: '10px',
+            borderRadius: '8px',
+            border: 'none',
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
             background: tab === 'add' ? 'var(--accent)' : 'var(--surface)',
             color: tab === 'add' ? '#000' : 'var(--muted)',
           }}
@@ -132,8 +159,13 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
         <button
           onClick={() => setTab('remove')}
           style={{
-            flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
-            fontWeight: 600, fontSize: '14px', cursor: 'pointer',
+            flex: 1,
+            padding: '10px',
+            borderRadius: '8px',
+            border: 'none',
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
             background: tab === 'remove' ? 'var(--danger)' : 'var(--surface)',
             color: tab === 'remove' ? '#000' : 'var(--muted)',
           }}
@@ -145,7 +177,14 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
       {tab === 'add' ? (
         <>
           <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+            <label
+              style={{
+                fontSize: '12px',
+                color: 'var(--muted)',
+                marginBottom: '4px',
+                display: 'block',
+              }}
+            >
               SOL to deposit
             </label>
             <input
@@ -155,9 +194,14 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
               placeholder="0.0"
               className="font-mono"
               style={{
-                width: '100%', padding: '12px', borderRadius: '8px',
-                border: '1px solid var(--border-color)', background: 'var(--surface)',
-                color: 'var(--foreground)', fontSize: '16px', outline: 'none',
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--surface)',
+                color: 'var(--foreground)',
+                fontSize: '16px',
+                outline: 'none',
               }}
             />
           </div>
@@ -169,11 +213,18 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
           </div>
 
           {solNum > 0 && (
-            <div style={{
-              padding: '12px', borderRadius: '8px', background: 'var(--surface)',
-              marginBottom: '12px', fontSize: '13px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+            <div
+              style={{
+                padding: '12px',
+                borderRadius: '8px',
+                background: 'var(--surface)',
+                marginBottom: '12px',
+                fontSize: '13px',
+              }}
+            >
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}
+              >
                 <span style={{ color: 'var(--muted)' }}>SOL</span>
                 <span className="font-mono">{solNum.toFixed(4)} SOL</span>
               </div>
@@ -184,12 +235,17 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
             </div>
           )}
 
-          <div style={{
-            padding: '10px 12px', borderRadius: '8px',
-            background: 'rgba(6, 182, 212, 0.08)',
-            border: '1px solid rgba(6, 182, 212, 0.2)',
-            marginBottom: '12px', fontSize: '12px', color: 'var(--accent)',
-          }}>
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: '8px',
+              background: 'rgba(6, 182, 212, 0.08)',
+              border: '1px solid rgba(6, 182, 212, 0.2)',
+              marginBottom: '12px',
+              fontSize: '12px',
+              color: 'var(--accent)',
+            }}
+          >
             7.5% of LP tokens are permanently locked in the pool. You receive 92.5%.
           </div>
 
@@ -197,8 +253,12 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
             onClick={handleAdd}
             disabled={loading || !wallet.publicKey || solLamports <= 0}
             style={{
-              width: '100%', padding: '14px', borderRadius: '8px', border: 'none',
-              fontWeight: 600, fontSize: '15px',
+              width: '100%',
+              padding: '14px',
+              borderRadius: '8px',
+              border: 'none',
+              fontWeight: 600,
+              fontSize: '15px',
               cursor: loading || !wallet.publicKey ? 'not-allowed' : 'pointer',
               background: wallet.publicKey ? 'var(--accent)' : 'var(--surface)',
               color: wallet.publicKey ? '#000' : 'var(--muted)',
@@ -211,12 +271,17 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
       ) : (
         <>
           <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+            <label
+              style={{
+                fontSize: '12px',
+                color: 'var(--muted)',
+                marginBottom: '4px',
+                display: 'block',
+              }}
+            >
               LP tokens to burn
               {lpBalance > 0 && (
-                <span style={{ float: 'right' }}>
-                  Balance: {(lpBalance / 1e6).toFixed(4)}
-                </span>
+                <span style={{ float: 'right' }}>Balance: {(lpBalance / 1e6).toFixed(4)}</span>
               )}
             </label>
             <input
@@ -226,9 +291,14 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
               placeholder="0.0"
               className="font-mono"
               style={{
-                width: '100%', padding: '12px', borderRadius: '8px',
-                border: '1px solid var(--border-color)', background: 'var(--surface)',
-                color: 'var(--foreground)', fontSize: '16px', outline: 'none',
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--surface)',
+                color: 'var(--foreground)',
+                fontSize: '16px',
+                outline: 'none',
               }}
             />
           </div>
@@ -236,7 +306,7 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
           <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
             {[25, 50, 75, 100].map((pct) =>
               presetBtn(`${pct}%`, () => {
-                let amt = Math.floor(lpBalance * pct / 100)
+                let amt = Math.floor((lpBalance * pct) / 100)
                 if (pct === 100) amt = Math.max(amt - 1, 0) // avoid rounding into full drain
                 setLpAmount((amt / 1e6).toString())
               }),
@@ -247,8 +317,12 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
             onClick={handleRemove}
             disabled={loading || !wallet.publicKey || !(parseFloat(lpAmount) > 0)}
             style={{
-              width: '100%', padding: '14px', borderRadius: '8px', border: 'none',
-              fontWeight: 600, fontSize: '15px',
+              width: '100%',
+              padding: '14px',
+              borderRadius: '8px',
+              border: 'none',
+              fontWeight: 600,
+              fontSize: '15px',
               cursor: loading || !wallet.publicKey ? 'not-allowed' : 'pointer',
               background: wallet.publicKey ? 'var(--danger)' : 'var(--surface)',
               color: wallet.publicKey ? '#000' : 'var(--muted)',
@@ -261,7 +335,13 @@ export function LPPanel({ mint, pool, onLpChange }: { mint: string; pool: PoolSt
       )}
 
       {status && (
-        <p style={{ marginTop: '8px', fontSize: '12px', color: status.startsWith('Error') ? 'var(--danger)' : 'var(--success)' }}>
+        <p
+          style={{
+            marginTop: '8px',
+            fontSize: '12px',
+            color: status.startsWith('Error') ? 'var(--danger)' : 'var(--success)',
+          }}
+        >
           {status}
         </p>
       )}

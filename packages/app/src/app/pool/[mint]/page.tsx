@@ -37,7 +37,15 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
     return (
       <>
         <Header />
-        <main style={{ maxWidth: '600px', margin: '0 auto', padding: '24px', textAlign: 'center', color: 'var(--muted)' }}>
+        <main
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+            padding: '24px',
+            textAlign: 'center',
+            color: 'var(--muted)',
+          }}
+        >
           Loading pool...
         </main>
       </>
@@ -48,7 +56,15 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
     return (
       <>
         <Header />
-        <main style={{ maxWidth: '600px', margin: '0 auto', padding: '24px', textAlign: 'center', color: 'var(--muted)' }}>
+        <main
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+            padding: '24px',
+            textAlign: 'center',
+            color: 'var(--muted)',
+          }}
+        >
           Pool not found for {mint.slice(0, 8)}...
         </main>
       </>
@@ -57,22 +73,31 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
 
   const solDepth = pool.solReserve / LAMPORTS_PER_SOL
   const tokenDepth = pool.tokenReserve / 1e6
-
   return (
     <>
       <Header />
       <main style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
         <div style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-            <h1 className="font-mono" style={{ fontSize: '13px', fontWeight: 600, wordBreak: 'break-all' }}>
+            <h1
+              className="font-mono"
+              style={{ fontSize: '13px', fontWeight: 600, wordBreak: 'break-all' }}
+            >
               {mint}
             </h1>
             <button
-              onClick={() => { navigator.clipboard.writeText(mint) }}
+              onClick={() => {
+                navigator.clipboard.writeText(mint)
+              }}
               title="Copy address"
               style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
-                color: 'var(--muted)', fontSize: '14px', flexShrink: 0,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px',
+                color: 'var(--muted)',
+                fontSize: '14px',
+                flexShrink: 0,
               }}
               onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--foreground)')}
               onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
@@ -81,26 +106,34 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
             </button>
           </div>
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '12px',
-            marginBottom: '16px',
-          }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px',
+              marginBottom: '16px',
+            }}
+          >
             <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--surface)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>SOL Depth</div>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                SOL Depth
+              </div>
               <div className="font-mono" style={{ fontSize: '18px', fontWeight: 600 }}>
                 {solDepth.toFixed(4)}
               </div>
             </div>
             <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--surface)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Token Reserve</div>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                Token Reserve
+              </div>
               <div className="font-mono" style={{ fontSize: '18px', fontWeight: 600 }}>
                 {tokenDepth.toFixed(2)}
               </div>
             </div>
             <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--surface)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Price (SOL/token)</div>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                Price (SOL/token)
+              </div>
               <div className="font-mono" style={{ fontSize: '18px', fontWeight: 600 }}>
                 {pool.price.toFixed(9)}
               </div>
@@ -108,16 +141,22 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
           </div>
         </div>
 
-        <div style={{
-          borderRadius: '12px',
-          border: '1px solid var(--border-color)',
-          overflow: 'hidden',
-        }}>
+        <div
+          style={{
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            overflow: 'hidden',
+          }}
+        >
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)' }}>
             <button
               onClick={() => setTab('swap')}
               style={{
-                flex: 1, padding: '12px', border: 'none', fontSize: '14px', fontWeight: 600,
+                flex: 1,
+                padding: '12px',
+                border: 'none',
+                fontSize: '14px',
+                fontWeight: 600,
                 cursor: 'pointer',
                 background: tab === 'swap' ? 'var(--surface-hover)' : 'transparent',
                 color: tab === 'swap' ? 'var(--foreground)' : 'var(--muted)',
@@ -129,7 +168,11 @@ export default function PoolPage({ params }: { params: Promise<{ mint: string }>
             <button
               onClick={() => setTab('lp')}
               style={{
-                flex: 1, padding: '12px', border: 'none', fontSize: '14px', fontWeight: 600,
+                flex: 1,
+                padding: '12px',
+                border: 'none',
+                fontSize: '14px',
+                fontWeight: 600,
                 cursor: 'pointer',
                 background: tab === 'lp' ? 'var(--surface-hover)' : 'transparent',
                 color: tab === 'lp' ? 'var(--foreground)' : 'var(--muted)',

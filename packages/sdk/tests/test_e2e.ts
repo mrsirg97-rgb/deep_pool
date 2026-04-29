@@ -102,11 +102,7 @@ const main = async () => {
     log(`  ✗ ${name} — ${err.message || err}`)
   }
   // Compares via toString to handle BN, PublicKey, number, bool uniformly.
-  const assertEvent = (
-    events: DecodedEvent[],
-    name: string,
-    checks: Record<string, any>,
-  ) => {
+  const assertEvent = (events: DecodedEvent[], name: string, checks: Record<string, any>) => {
     const ev = events.find((e) => e.name === name)
     if (!ev) {
       fail(`event ${name}`, 'not emitted')
@@ -133,8 +129,8 @@ const main = async () => {
     mint = await createMint(
       connection,
       wallet,
-      wallet.publicKey,  // mint authority
-      null,              // no freeze
+      wallet.publicKey, // mint authority
+      null, // no freeze
       TOKEN_DECIMALS,
       undefined,
       { commitment: 'confirmed' },
@@ -147,10 +143,19 @@ const main = async () => {
   }
 
   // Mint tokens to wallet
-  const walletAta = getAssociatedTokenAddressSync(mint, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
+  const walletAta = getAssociatedTokenAddressSync(
+    mint,
+    wallet.publicKey,
+    false,
+    TOKEN_2022_PROGRAM_ID,
+  )
   try {
     const createAtaIx = createAssociatedTokenAccountInstruction(
-      wallet.publicKey, walletAta, wallet.publicKey, mint, TOKEN_2022_PROGRAM_ID,
+      wallet.publicKey,
+      walletAta,
+      wallet.publicKey,
+      mint,
+      TOKEN_2022_PROGRAM_ID,
     )
     const ataTx = new Transaction().add(createAtaIx)
     const { blockhash } = await connection.getLatestBlockhash()
@@ -159,9 +164,15 @@ const main = async () => {
     await signAndSend(connection, wallet, ataTx)
 
     await mintTo(
-      connection, wallet, mint, walletAta, wallet.publicKey,
+      connection,
+      wallet,
+      mint,
+      walletAta,
+      wallet.publicKey,
       500_000_000 * TOKEN_MULTIPLIER, // 500M tokens
-      [], { commitment: 'confirmed' }, TOKEN_2022_PROGRAM_ID,
+      [],
+      { commitment: 'confirmed' },
+      TOKEN_2022_PROGRAM_ID,
     )
     ok('mint tokens', '500M tokens to wallet')
   } catch (e: any) {
@@ -173,7 +184,7 @@ const main = async () => {
   // 2. Create Pool
   // ------------------------------------------------------------------
   log('\n[2] Create Pool')
-  const initialSol = 10 * LAMPORTS_PER_SOL          // 10 SOL
+  const initialSol = 10 * LAMPORTS_PER_SOL // 10 SOL
   const initialTokens = 100_000_000 * TOKEN_MULTIPLIER // 100M tokens
 
   try {
@@ -185,7 +196,10 @@ const main = async () => {
       initialSolAmount: initialSol,
     })
     const sig = await signAndSend(connection, wallet, result.transaction)
-    ok('create pool', `pool=${result.pool.slice(0, 8)}... lp_mint=${result.lpMint.slice(0, 8)}... sig=${sig.slice(0, 8)}...`)
+    ok(
+      'create pool',
+      `pool=${result.pool.slice(0, 8)}... lp_mint=${result.lpMint.slice(0, 8)}... sig=${sig.slice(0, 8)}...`,
+    )
 
     const evs = await parseEvents(connection, sig)
     const [poolPda] = getPoolPda(wallet.publicKey, mint)
@@ -224,10 +238,14 @@ const main = async () => {
   log('\n[4] Swap: Buy 1 SOL → Tokens')
   try {
     const quote = getSwapQuote(
-      poolState!.solReserve, poolState!.tokenReserve,
-      1 * LAMPORTS_PER_SOL, true,
+      poolState!.solReserve,
+      poolState!.tokenReserve,
+      1 * LAMPORTS_PER_SOL,
+      true,
     )
-    log(`  Quote: ${quote.amountOut / TOKEN_MULTIPLIER} tokens, fee: ${quote.fee / LAMPORTS_PER_SOL} SOL, impact: ${quote.priceImpactPercent.toFixed(2)}%`)
+    log(
+      `  Quote: ${quote.amountOut / TOKEN_MULTIPLIER} tokens, fee: ${quote.fee / LAMPORTS_PER_SOL} SOL, impact: ${quote.priceImpactPercent.toFixed(2)}%`,
+    )
 
     const result = await buildSwapTransaction(connection, {
       user: wallet.publicKey.toBase58(),
@@ -269,11 +287,10 @@ const main = async () => {
   log('\n[5] Swap: Sell 1M Tokens → SOL')
   try {
     const sellAmount = 1_000_000 * TOKEN_MULTIPLIER
-    const quote = getSwapQuote(
-      poolState!.solReserve, poolState!.tokenReserve,
-      sellAmount, false,
+    const quote = getSwapQuote(poolState!.solReserve, poolState!.tokenReserve, sellAmount, false)
+    log(
+      `  Quote: ${quote.amountOut / LAMPORTS_PER_SOL} SOL, fee: ${quote.fee / TOKEN_MULTIPLIER} tokens, impact: ${quote.priceImpactPercent.toFixed(2)}%`,
     )
-    log(`  Quote: ${quote.amountOut / LAMPORTS_PER_SOL} SOL, fee: ${quote.fee / TOKEN_MULTIPLIER} tokens, impact: ${quote.priceImpactPercent.toFixed(2)}%`)
 
     const result = await buildSwapTransaction(connection, {
       user: wallet.publicKey.toBase58(),
@@ -317,12 +334,17 @@ const main = async () => {
     // Check LP balance before
     const [poolPda] = getPoolPda(wallet.publicKey, mint)
     const [lpMintPda] = getLpMintPda(poolPda)
-    const walletLpAta = getAssociatedTokenAddressSync(lpMintPda, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
+    const walletLpAta = getAssociatedTokenAddressSync(
+      lpMintPda,
+      wallet.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    )
     const lpBefore = await connection.getTokenAccountBalance(walletLpAta)
     const lpSupplyBefore = await connection.getTokenSupply(lpMintPda)
 
     const tokenAmount = 10_000_000 * TOKEN_MULTIPLIER // 10M tokens
-    const maxSol = 5 * LAMPORTS_PER_SOL              // max 5 SOL
+    const maxSol = 5 * LAMPORTS_PER_SOL // max 5 SOL
 
     const result = await buildAddLiquidityTransaction(connection, {
       provider: wallet.publicKey.toBase58(),
@@ -347,7 +369,10 @@ const main = async () => {
     log(`  Pool PDA LP (locked): ${poolLpBal.value.amount}`)
 
     if (supplyGain > 0 && userLpGain < supplyGain) {
-      ok('add liquidity + 7.5% lock', `user got ${(userLpGain / supplyGain * 100).toFixed(0)}% of minted LP`)
+      ok(
+        'add liquidity + 7.5% lock',
+        `user got ${((userLpGain / supplyGain) * 100).toFixed(0)}% of minted LP`,
+      )
     } else {
       ok('add liquidity', `sig=${sig.slice(0, 8)}...`)
     }
@@ -375,7 +400,12 @@ const main = async () => {
   log('\n[7] Remove Liquidity')
   try {
     const [lpMint] = getLpMintPda(new PublicKey(poolState!.address))
-    const lpAta = getAssociatedTokenAddressSync(lpMint, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
+    const lpAta = getAssociatedTokenAddressSync(
+      lpMint,
+      wallet.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    )
     const lpBalance = await connection.getTokenAccountBalance(lpAta)
     const lpAmount = Math.floor(Number(lpBalance.value.amount) / 10) // remove 10%
 
@@ -482,7 +512,12 @@ const main = async () => {
   log('\n[10] Edge: Remove ALL user LP — 7.5% lock should keep reserves')
   try {
     const [lpMint2] = getLpMintPda(new PublicKey(poolState!.address))
-    const lpAta2 = getAssociatedTokenAddressSync(lpMint2, wallet.publicKey, false, TOKEN_2022_PROGRAM_ID)
+    const lpAta2 = getAssociatedTokenAddressSync(
+      lpMint2,
+      wallet.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    )
     const lpBal2 = await connection.getTokenAccountBalance(lpAta2)
     const allLp = Number(lpBal2.value.amount)
     const solBefore = poolState!.solReserve
@@ -501,8 +536,11 @@ const main = async () => {
 
     poolState = await getPool(connection, mint.toBase58(), wallet.publicKey.toBase58())
     if (poolState && poolState.solReserve > 0 && poolState.tokenReserve > 0) {
-      const lockedPct = (poolState.solReserve / solBefore * 100).toFixed(1)
-      ok('remove all LP — pool survives', `${lockedPct}% of SOL locked (${poolState.solReserve / LAMPORTS_PER_SOL} SOL, ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens)`)
+      const lockedPct = ((poolState.solReserve / solBefore) * 100).toFixed(1)
+      ok(
+        'remove all LP — pool survives',
+        `${lockedPct}% of SOL locked (${poolState.solReserve / LAMPORTS_PER_SOL} SOL, ${poolState.tokenReserve / TOKEN_MULTIPLIER} tokens)`,
+      )
     } else {
       fail('remove all LP', 'pool drained to zero — 7.5% lock failed')
     }
@@ -534,9 +572,18 @@ const main = async () => {
     await signAndSend(connection, wallet, fundTx)
 
     // Give provider2 some tokens
-    const p2Ata = getAssociatedTokenAddressSync(mint, provider2.publicKey, false, TOKEN_2022_PROGRAM_ID)
+    const p2Ata = getAssociatedTokenAddressSync(
+      mint,
+      provider2.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    )
     const createP2Ata = createAssociatedTokenAccountInstruction(
-      wallet.publicKey, p2Ata, provider2.publicKey, mint, TOKEN_2022_PROGRAM_ID,
+      wallet.publicKey,
+      p2Ata,
+      provider2.publicKey,
+      mint,
+      TOKEN_2022_PROGRAM_ID,
     )
     const ataTx = new Transaction().add(createP2Ata)
     const { blockhash: aBh } = await connection.getLatestBlockhash()
@@ -545,9 +592,15 @@ const main = async () => {
     await signAndSend(connection, wallet, ataTx)
 
     await mintTo(
-      connection, wallet, mint, p2Ata, wallet.publicKey,
+      connection,
+      wallet,
+      mint,
+      p2Ata,
+      wallet.publicKey,
       10_000_000 * TOKEN_MULTIPLIER,
-      [], { commitment: 'confirmed' }, TOKEN_2022_PROGRAM_ID,
+      [],
+      { commitment: 'confirmed' },
+      TOKEN_2022_PROGRAM_ID,
     )
 
     // Provider2 adds liquidity
@@ -567,7 +620,12 @@ const main = async () => {
 
     // Provider2 removes liquidity
     const [lpMint3] = getLpMintPda(new PublicKey(poolState!.address))
-    const p2LpAta = getAssociatedTokenAddressSync(lpMint3, provider2.publicKey, false, TOKEN_2022_PROGRAM_ID)
+    const p2LpAta = getAssociatedTokenAddressSync(
+      lpMint3,
+      provider2.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    )
     const p2LpBal = await connection.getTokenAccountBalance(p2LpAta)
     const p2LpAmount = Number(p2LpBal.value.amount)
 

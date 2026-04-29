@@ -1,11 +1,5 @@
 import { PublicKey } from '@solana/web3.js'
-import {
-  EVENT_AUTHORITY_SEED,
-  LP_MINT_SEED,
-  POOL_SEED,
-  PROGRAM_ID,
-  VAULT_SEED,
-} from './constants'
+import { EVENT_AUTHORITY_SEED, LP_MINT_SEED, POOL_SEED, PROGRAM_ID, VAULT_SEED } from './constants'
 
 export const getPoolPda = (config: PublicKey, tokenMint: PublicKey): [PublicKey, number] =>
   PublicKey.findProgramAddressSync([POOL_SEED, config.toBuffer(), tokenMint.toBuffer()], PROGRAM_ID)

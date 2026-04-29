@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL || 'https://karmen-xgrgn5-fast-mainnet.helius-rpc.com',
     NEXT_PUBLIC_NETWORK: process.env.NEXT_PUBLIC_NETWORK || 'devnet',
+    // Optional. When set, the SDK's pool getters route through this indexer
+    // first and fall back to RPC on any failure. Docker compose bakes
+    // http://localhost:8080 into the build via build args; local `next dev`
+    // can leave this unset for pure RPC reads.
+    NEXT_PUBLIC_INDEXER_URL: process.env.NEXT_PUBLIC_INDEXER_URL || '',
   },
 }
 

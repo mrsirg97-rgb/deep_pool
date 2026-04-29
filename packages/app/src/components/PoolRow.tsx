@@ -2,13 +2,11 @@
 
 import Link from 'next/link'
 import type { PoolState } from 'deeppoolsdk'
+import { LAMPORTS_PER_SOL } from 'deeppoolsdk'
 
-const LAMPORTS_PER_SOL = 1_000_000_000
-
-export function PoolRow({ pool }: { pool: PoolState }) {
+export const PoolRow = ({ pool }: { pool: PoolState }) => {
   const solDepth = pool.solReserve / LAMPORTS_PER_SOL
   const tokenDepth = pool.tokenReserve / 1e6
-
   return (
     <Link
       href={`/pool/${pool.tokenMint}`}
@@ -35,7 +33,10 @@ export function PoolRow({ pool }: { pool: PoolState }) {
         <div className="font-mono" style={{ fontSize: '13px', fontWeight: 500 }}>
           {solDepth.toFixed(4)} SOL
         </div>
-        <div className="font-mono" style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+        <div
+          className="font-mono"
+          style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}
+        >
           {tokenDepth.toFixed(2)} tokens
         </div>
       </div>

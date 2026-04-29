@@ -25,7 +25,13 @@ export default function CreatePage() {
     try {
       // Check if pool already exists
       const { getPool } = await import('deeppoolsdk')
-      const existing = await getPool(connection, tokenMint, wallet.publicKey!.toBase58())
+      const { readOptions } = await import('@/lib/sdk')
+      const existing = await getPool(
+        connection,
+        tokenMint,
+        wallet.publicKey!.toBase58(),
+        readOptions(),
+      )
       if (existing) {
         setStatus(`Pool already exists for this token`)
         setLoading(false)
@@ -65,13 +71,22 @@ export default function CreatePage() {
       <main style={{ maxWidth: '500px', margin: '0 auto', padding: '24px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px' }}>Create Pool</h1>
 
-        <div style={{
-          borderRadius: '12px',
-          border: '1px solid var(--border-color)',
-          padding: '24px',
-        }}>
+        <div
+          style={{
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            padding: '24px',
+          }}
+        >
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+            <label
+              style={{
+                fontSize: '12px',
+                color: 'var(--muted)',
+                marginBottom: '4px',
+                display: 'block',
+              }}
+            >
               Token Mint (Token-2022)
             </label>
             <input
@@ -80,16 +95,35 @@ export default function CreatePage() {
               placeholder="Token mint address"
               className="font-mono"
               style={{
-                width: '100%', padding: '12px', borderRadius: '8px',
-                border: '1px solid var(--border-color)', background: 'var(--surface)',
-                color: 'var(--foreground)', fontSize: '13px', outline: 'none',
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--surface)',
+                color: 'var(--foreground)',
+                fontSize: '13px',
+                outline: 'none',
               }}
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px',
+              marginBottom: '16px',
+            }}
+          >
             <div>
-              <label style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+              <label
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--muted)',
+                  marginBottom: '4px',
+                  display: 'block',
+                }}
+              >
                 Initial tokens
               </label>
               <input
@@ -99,14 +133,26 @@ export default function CreatePage() {
                 placeholder="0.0"
                 className="font-mono"
                 style={{
-                  width: '100%', padding: '12px', borderRadius: '8px',
-                  border: '1px solid var(--border-color)', background: 'var(--surface)',
-                  color: 'var(--foreground)', fontSize: '16px', outline: 'none',
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--surface)',
+                  color: 'var(--foreground)',
+                  fontSize: '16px',
+                  outline: 'none',
                 }}
               />
             </div>
             <div>
-              <label style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+              <label
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--muted)',
+                  marginBottom: '4px',
+                  display: 'block',
+                }}
+              >
                 Initial SOL
               </label>
               <input
@@ -116,16 +162,29 @@ export default function CreatePage() {
                 placeholder="0.0"
                 className="font-mono"
                 style={{
-                  width: '100%', padding: '12px', borderRadius: '8px',
-                  border: '1px solid var(--border-color)', background: 'var(--surface)',
-                  color: 'var(--foreground)', fontSize: '16px', outline: 'none',
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--surface)',
+                  color: 'var(--foreground)',
+                  fontSize: '16px',
+                  outline: 'none',
                 }}
               />
             </div>
           </div>
 
           {tokenAmount && solAmount && parseFloat(tokenAmount) > 0 && parseFloat(solAmount) > 0 && (
-            <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--surface)', marginBottom: '16px', fontSize: '13px' }}>
+            <div
+              style={{
+                padding: '12px',
+                borderRadius: '8px',
+                background: 'var(--surface)',
+                marginBottom: '16px',
+                fontSize: '13px',
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--muted)' }}>Initial price</span>
                 <span className="font-mono">
@@ -139,8 +198,12 @@ export default function CreatePage() {
             onClick={handleCreate}
             disabled={loading || !wallet.publicKey || !tokenMint}
             style={{
-              width: '100%', padding: '14px', borderRadius: '8px', border: 'none',
-              fontWeight: 600, fontSize: '15px',
+              width: '100%',
+              padding: '14px',
+              borderRadius: '8px',
+              border: 'none',
+              fontWeight: 600,
+              fontSize: '15px',
               cursor: loading || !wallet.publicKey ? 'not-allowed' : 'pointer',
               background: wallet.publicKey ? 'var(--accent)' : 'var(--surface)',
               color: wallet.publicKey ? '#000' : 'var(--muted)',
@@ -151,7 +214,13 @@ export default function CreatePage() {
           </button>
 
           {status && (
-            <p style={{ marginTop: '8px', fontSize: '12px', color: status.startsWith('Error') ? 'var(--danger)' : 'var(--success)' }}>
+            <p
+              style={{
+                marginTop: '8px',
+                fontSize: '12px',
+                color: status.startsWith('Error') ? 'var(--danger)' : 'var(--success)',
+              }}
+            >
               {status}
             </p>
           )}
