@@ -41,25 +41,28 @@ Two halves, sharing the database:
 Domain layer = thin CRUD per table. Services compose domain calls + use the per-request cache.
 
 ```
-┌──────────────┐    composes ──▶ ┌──────────────┐
-│ SwapService  │◀────────────────│ PoolService  │
-└──────────────┘                 └──────────────┘
-       │ composes                       ▲
-       ▼                                │ composes
-┌──────────────────┐         ┌──────────────────┐
-│ LiquidityService │ ───────▶│ ReservesService  │
-└──────────────────┘         └──────────────────┘
+┌──────────────┐  composes   ┌──────────────────┐  composes   ┌──────────────────┐
+│ SwapService  │ ───────────▶│   PoolService    │◀─────────── │ LiquidityService │
+└──────────────┘             │ cache: pool_id   │             └──────────────────┘
+                             │      + pubkey    │
+                             └──────────────────┘
+
+┌──────────────────┐  standalone — called directly by handlers
+│ ReservesService  │  (the pool-detail endpoint composes pool + reserves
+└──────────────────┘   at the handler layer, not service-to-service)
 ```
 
-**Domain methods (per table)**: `set(rows)`, `get(id)`, `list(condition)`, `del(ids)`. Same shape across pool, swap, liquidity, reserves.
+`PoolService` is the only composition target — both `SwapService` and `LiquidityService` route through it for token-mint filters. `ReservesService` and `PoolService` are leaves (no inter-service deps); the cache lives on `PoolService` because pubkey-and-id lookups dominate, and on `ReservesService` for "current state per pool."
 
-**Service methods** build conditions and delegate. Example — `SwapService::for_token_mint(mint)`:
-1. `ctx.pools().by_token_mints([mint])` → returns Vec<PoolRow>, cached.
+**Domain methods (per table)**: `set(rows)`, `get(id)`, `list(filter)`, `del(ids)`. Same shape across pool, swap, liquidity, reserves.
+
+**Service methods** build filters and delegate. Example — `SwapService::for_token_mint(mint)`:
+1. `ctx.pools().for_token_mints([mint])` → `Vec<Arc<PoolRow>>`, cached by pool_id and pubkey.
 2. Map to `pool_ids: Vec<i32>`.
-3. `swap_domain.list(Condition::PoolIdIn(pool_ids))`.
-4. Return.
+3. `swap::list(tx, SwapFilter { pool_ids: Some(pool_ids), ..Default::default() })`.
+4. Return as `Vec<Arc<SwapRow>>`.
 
-No JOIN, no view, no DB-side aggregation. The "join" is two domain queries with a HashMap in between.
+No JOIN, no view, no DB-side aggregation. The "join" is two domain queries with a `HashMap<i32, Arc<PoolRow>>` in between.
 
 ## Schema
 
