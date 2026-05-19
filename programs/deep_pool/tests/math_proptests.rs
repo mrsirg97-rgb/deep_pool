@@ -212,6 +212,81 @@ proptest! {
 }
 
 // ============================================================================
+// calc_proportional
+// ============================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(10_000))]
+
+    #[test]
+    fn proportional_zero_is_zero(
+        reserve_a in 1u64..RESERVE_MAX,
+        reserve_b in 1u64..RESERVE_MAX,
+    ) {
+        prop_assert_eq!(calc_proportional(0, reserve_a, reserve_b).unwrap(), 0);
+    }
+
+    /// `calc_proportional(reserve_a, reserve_a, reserve_b) == reserve_b` —
+    /// a full-share input maps to the full opposite reserve.
+    #[test]
+    fn proportional_full_input_maps_to_full_opposite(
+        reserve_a in 1u64..RESERVE_MAX,
+        reserve_b in 1u64..RESERVE_MAX,
+    ) {
+        prop_assert_eq!(
+            calc_proportional(reserve_a, reserve_a, reserve_b).unwrap(),
+            reserve_b
+        );
+    }
+
+    /// Monotonic in input — bigger deposit, bigger matched output.
+    /// Inputs constrained so the result fits in u64 (typical caller invariant:
+    /// input ≤ reserve_a). Overflow cases are handled separately below.
+    #[test]
+    fn proportional_monotonic_in_input(
+        a in 1u64..RESERVE_MAX,
+        b in 1u64..RESERVE_MAX,
+        reserve_a in 1u64..RESERVE_MAX,
+        reserve_b in 1u64..RESERVE_MAX,
+    ) {
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        // Skip cases where the larger input overflows u64 — those return None
+        // and the comparison is undefined. Real callers (add_liquidity) keep
+        // input ≤ reserve_a where result is bounded by reserve_b ≤ u64::MAX.
+        let out_lo = calc_proportional(lo, reserve_a, reserve_b);
+        let out_hi = calc_proportional(hi, reserve_a, reserve_b);
+        if let (Some(lo_val), Some(hi_val)) = (out_lo, out_hi) {
+            prop_assert!(hi_val >= lo_val);
+        }
+    }
+
+    /// Overflow propagates to None — no silent truncation.
+    #[test]
+    fn proportional_overflow_returns_none(
+        input in (u64::MAX / 2)..u64::MAX,
+        reserve_b in (u64::MAX / 2)..u64::MAX,
+    ) {
+        // input * reserve_b ≈ u64::MAX² ≈ 3.4e38, well within u128 range.
+        // With reserve_a = 1, the quotient ≈ u64::MAX² >> u64::MAX → overflow.
+        prop_assert_eq!(calc_proportional(input, 1, reserve_b), None);
+    }
+
+    /// Algebraic equivalence with `calc_lp_redeem` — same a*b/c shape.
+    /// Guards against drift if either function is refactored.
+    #[test]
+    fn proportional_equals_lp_redeem(
+        input in 0u64..RESERVE_MAX,
+        reserve_a in 1u64..RESERVE_MAX,
+        reserve_b in 1u64..RESERVE_MAX,
+    ) {
+        prop_assert_eq!(
+            calc_proportional(input, reserve_a, reserve_b),
+            calc_lp_redeem(input, reserve_b, reserve_a),
+        );
+    }
+}
+
+// ============================================================================
 // integer_sqrt
 // ============================================================================
 

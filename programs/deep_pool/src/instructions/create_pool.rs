@@ -110,7 +110,7 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
 
     // 1. Transfer tokens from creator to vault (measure net for Token-2022 fee)
     let vault_before = ctx.accounts.token_vault.amount;
-    
+
     token_interface::transfer_checked(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),

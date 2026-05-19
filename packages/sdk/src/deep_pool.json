@@ -2,14 +2,23 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "4.1.0",
+    "version": "4.2.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
   "instructions": [
     {
       "name": "add_liquidity",
-      "discriminator": [181, 157, 89, 67, 143, 182, 52, 72],
+      "discriminator": [
+        181,
+        157,
+        89,
+        67,
+        143,
+        182,
+        52,
+        72
+      ],
       "accounts": [
         {
           "name": "provider",
@@ -23,7 +32,17 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [100, 101, 101, 112, 95, 112, 111, 111, 108]
+                "value": [
+                  100,
+                  101,
+                  101,
+                  112,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
               },
               {
                 "kind": "account",
@@ -70,8 +89,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -97,8 +146,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -124,8 +203,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -148,7 +257,23 @@
               {
                 "kind": "const",
                 "value": [
-                  95, 95, 101, 118, 101, 110, 116, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
                 ]
               }
             ]
@@ -171,7 +296,16 @@
     },
     {
       "name": "create_pool",
-      "discriminator": [233, 146, 209, 142, 207, 104, 64, 188],
+      "discriminator": [
+        233,
+        146,
+        209,
+        142,
+        207,
+        104,
+        64,
+        188
+      ],
       "accounts": [
         {
           "name": "creator",
@@ -192,7 +326,17 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [100, 101, 101, 112, 95, 112, 111, 111, 108]
+                "value": [
+                  100,
+                  101,
+                  101,
+                  112,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
               },
               {
                 "kind": "account",
@@ -212,7 +356,18 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [112, 111, 111, 108, 95, 118, 97, 117, 108, 116]
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
               },
               {
                 "kind": "account",
@@ -228,7 +383,20 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [112, 111, 111, 108, 95, 108, 112, 95, 109, 105, 110, 116]
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  108,
+                  112,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
               },
               {
                 "kind": "account",
@@ -258,8 +426,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -285,8 +483,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -312,8 +540,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -336,7 +594,23 @@
               {
                 "kind": "const",
                 "value": [
-                  95, 95, 101, 118, 101, 110, 116, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
                 ]
               }
             ]
@@ -359,7 +633,16 @@
     },
     {
       "name": "remove_liquidity",
-      "discriminator": [80, 85, 209, 72, 24, 206, 177, 108],
+      "discriminator": [
+        80,
+        85,
+        209,
+        72,
+        24,
+        206,
+        177,
+        108
+      ],
       "accounts": [
         {
           "name": "provider",
@@ -373,7 +656,17 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [100, 101, 101, 112, 95, 112, 111, 111, 108]
+                "value": [
+                  100,
+                  101,
+                  101,
+                  112,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
               },
               {
                 "kind": "account",
@@ -420,8 +713,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -447,8 +770,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -471,7 +824,23 @@
               {
                 "kind": "const",
                 "value": [
-                  95, 95, 101, 118, 101, 110, 116, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
                 ]
               }
             ]
@@ -494,7 +863,16 @@
     },
     {
       "name": "swap",
-      "discriminator": [248, 198, 158, 145, 225, 117, 135, 200],
+      "discriminator": [
+        248,
+        198,
+        158,
+        145,
+        225,
+        117,
+        135,
+        200
+      ],
       "accounts": [
         {
           "name": "user",
@@ -513,7 +891,17 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [100, 101, 101, 112, 95, 112, 111, 111, 108]
+                "value": [
+                  100,
+                  101,
+                  101,
+                  112,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
               },
               {
                 "kind": "account",
@@ -556,8 +944,38 @@
             "program": {
               "kind": "const",
               "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131, 11, 90, 19,
-                153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
               ]
             }
           }
@@ -580,7 +998,23 @@
               {
                 "kind": "const",
                 "value": [
-                  95, 95, 101, 118, 101, 110, 116, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
                 ]
               }
             ]
@@ -605,25 +1039,70 @@
   "accounts": [
     {
       "name": "Pool",
-      "discriminator": [241, 154, 109, 4, 17, 177, 109, 188]
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
+      ]
     }
   ],
   "events": [
     {
       "name": "LiquidityAdded",
-      "discriminator": [154, 26, 221, 108, 238, 64, 217, 161]
+      "discriminator": [
+        154,
+        26,
+        221,
+        108,
+        238,
+        64,
+        217,
+        161
+      ]
     },
     {
       "name": "LiquidityRemoved",
-      "discriminator": [225, 105, 216, 39, 124, 116, 169, 189]
+      "discriminator": [
+        225,
+        105,
+        216,
+        39,
+        124,
+        116,
+        169,
+        189
+      ]
     },
     {
       "name": "PoolCreated",
-      "discriminator": [202, 44, 41, 88, 104, 220, 157, 82]
+      "discriminator": [
+        202,
+        44,
+        41,
+        88,
+        104,
+        220,
+        157,
+        82
+      ]
     },
     {
       "name": "SwapExecuted",
-      "discriminator": [150, 166, 26, 225, 28, 89, 38, 79]
+      "discriminator": [
+        150,
+        166,
+        26,
+        225,
+        28,
+        89,
+        38,
+        79
+      ]
     }
   ],
   "errors": [
@@ -701,14 +1180,30 @@
         "fields": [
           {
             "name": "token_amount",
+            "docs": [
+              "Tokens the provider intends to deposit, in gross units. The handler",
+              "measures the net amount that actually lands in the vault (after any",
+              "Token-2022 transfer fee) and derives the required SOL deposit from",
+              "that net value — the provider pays SOL strictly proportional to what",
+              "they actually contribute, not the pre-fee gross."
+            ],
             "type": "u64"
           },
           {
             "name": "max_sol_amount",
+            "docs": [
+              "Worst-case SOL the provider is willing to spend (assumes zero transfer",
+              "fee). Actual `sol_required` after the Token-2022 fee is applied is",
+              "always ≤ this value. Acts as the slippage guard."
+            ],
             "type": "u64"
           },
           {
             "name": "min_lp_out",
+            "docs": [
+              "Minimum LP tokens the provider must receive after the 7.5% protocol",
+              "lock. Slippage guard against pool state shifting between quote + send."
+            ],
             "type": "u64"
           }
         ]
@@ -941,10 +1436,22 @@
           },
           {
             "name": "min_sol_out",
+            "docs": [
+              "Minimum SOL the provider must receive. SOL has no transfer fee, so",
+              "the wallet receives this amount exactly."
+            ],
             "type": "u64"
           },
           {
             "name": "min_tokens_out",
+            "docs": [
+              "Minimum tokens the provider must receive, in gross units (before any",
+              "Token-2022 transfer fee on the recipient side). The wallet may receive",
+              "slightly less if the mint has a non-zero `TransferFeeConfig` — clients",
+              "should subtract the per-mint rate to render the expected receipt. The",
+              "emitted `LiquidityRemoved` event includes both `tokens_out_gross` and",
+              "`tokens_out_net` for reconciliation."
+            ],
             "type": "u64"
           }
         ]
@@ -961,10 +1468,21 @@
           },
           {
             "name": "minimum_out",
+            "docs": [
+              "Minimum acceptable output, in gross units (i.e. before any Token-2022",
+              "transfer fee skimmed from the recipient side on the buy path). The",
+              "actual amount the user wallet receives may be slightly less if the",
+              "token has a transfer fee — wallets should subtract the mint's",
+              "`TransferFeeConfig` rate from this value to render the expected",
+              "receipt. Sell path is unaffected (output is SOL, no transfer fee)."
+            ],
             "type": "u64"
           },
           {
             "name": "buy",
+            "docs": [
+              "true = SOL → Token (buy), false = Token → SOL (sell)."
+            ],
             "type": "bool"
           }
         ]

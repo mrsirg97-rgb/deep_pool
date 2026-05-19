@@ -43,7 +43,7 @@ The `config` must sign `create_pool`. Two usage patterns:
 
 Downstream instructions (`swap`, `add_liquidity`, `remove_liquidity`) don't require the config to sign — they re-derive the pool PDA from the stored `pool.config` at load time and fail if substituted. The signer requirement is only at creation.
 
-Pools in different namespaces are at different addresses. They can't interfere, can't collide, can't be squatted. This closes the pool-initialization-griefing vulnerability class documented in [pool-initialization-griefing.md](./pool-initialization-griefing.md).
+Pools in different namespaces are at different addresses. They can't interfere, can't collide, can't be squatted. This closes the pool-initialization-griefing vulnerability class documented in [pool-namespacing.md](./pool-namespacing.md).
 
 ## Instructions
 

@@ -87,13 +87,24 @@ CREATE INDEX pools_token_mint_idx ON pools(token_mint);
 CREATE INDEX pools_creator_idx    ON pools(creator);
 
 CREATE TABLE reserves (
-    pool_id        INT PRIMARY KEY REFERENCES pools(pool_id),
+    reserve_id     SERIAL PRIMARY KEY,
+    pool_id        INT NOT NULL REFERENCES pools(pool_id),
     sol_reserve    BIGINT NOT NULL,
     token_reserve  BIGINT NOT NULL,
     lp_supply      BIGINT NOT NULL,
     last_slot      BIGINT NOT NULL,
-    last_updated   TIMESTAMPTZ NOT NULL
+    signature      TEXT NOT NULL,
+    inner_ix_idx   INT NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL,
+    UNIQUE (signature, inner_ix_idx)
 );
+-- Append-only: one row per state-changing event, not one row per pool. The
+-- "current reserves" query selects DISTINCT ON (pool_id) ordered by
+-- (last_slot DESC, signature DESC, inner_ix_idx DESC). Tiebreak is on the
+-- UNIQUE-constrained event identity (not reserve_id) so cross-page backfill
+-- ordering is stable across re-runs. See domain/reserves.rs.
+CREATE INDEX reserves_pool_slot_idx
+    ON reserves(pool_id, last_slot DESC, signature DESC, inner_ix_idx DESC);
 
 CREATE TABLE swaps (
     swap_id              SERIAL PRIMARY KEY,
@@ -155,12 +166,12 @@ Per block, **one Postgres transaction**:
 ```
 BEGIN
   for each decoded event in (tx_index, inner_ix_idx) order:
-    PoolCreated     → INSERT pools (ON CONFLICT (pubkey) DO NOTHING)
-                      INSERT reserves (ON CONFLICT (pool_id) DO UPDATE)  -- bootstraps
-    SwapExecuted    → INSERT swaps (ON CONFLICT (signature, inner_ix_idx) DO NOTHING)
-                      UPDATE reserves SET sol_reserve, token_reserve, last_slot, last_updated
+    PoolCreated     → INSERT pools    (ON CONFLICT (pubkey) DO NOTHING)
+                      INSERT reserves (ON CONFLICT (signature, inner_ix_idx) DO NOTHING)
+    SwapExecuted    → INSERT swaps    (ON CONFLICT (signature, inner_ix_idx) DO NOTHING)
+                      INSERT reserves (ON CONFLICT (signature, inner_ix_idx) DO NOTHING)
     Liquidity*      → INSERT liquidity_events (ON CONFLICT (...) DO NOTHING)
-                      UPDATE reserves (sol, token, lp_supply, ...)
+                      INSERT reserves (ON CONFLICT (signature, inner_ix_idx) DO NOTHING)
   UPDATE indexer_state SET last_processed_slot = <block.slot>
 COMMIT
 → post-COMMIT WS broadcast for the rows actually inserted
@@ -170,7 +181,7 @@ COMMIT
 
 **Order within a block matters** because `PoolCreated` must precede any swap/liquidity row referencing the same `pool_id`. Sort by `(tx_index, inner_ix_idx)` before processing.
 
-**Reserves update is in-tx with the event**, no triggers. Triggers were considered and rejected: invisible to readers of the indexer code, harder to test, and the same atomic-write pattern handles it explicitly.
+**Reserves are append-only, not updated in place.** Every state-changing event emits a new reserves row keyed on `(signature, inner_ix_idx)`. Readers select the latest via `DISTINCT ON (pool_id) ORDER BY pool_id, last_slot DESC, signature DESC, inner_ix_idx DESC`. The append-only model is idempotent across replays (UNIQUE collision = no-op) and gives a full time-series of reserves for free. Triggers were considered and rejected: invisible to readers, harder to test, and the explicit-INSERT pattern handles it atomically.
 
 ## Decoder
 

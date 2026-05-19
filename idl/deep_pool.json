@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "4.1.0",
+    "version": "4.2.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -1180,14 +1180,30 @@
         "fields": [
           {
             "name": "token_amount",
+            "docs": [
+              "Tokens the provider intends to deposit, in gross units. The handler",
+              "measures the net amount that actually lands in the vault (after any",
+              "Token-2022 transfer fee) and derives the required SOL deposit from",
+              "that net value — the provider pays SOL strictly proportional to what",
+              "they actually contribute, not the pre-fee gross."
+            ],
             "type": "u64"
           },
           {
             "name": "max_sol_amount",
+            "docs": [
+              "Worst-case SOL the provider is willing to spend (assumes zero transfer",
+              "fee). Actual `sol_required` after the Token-2022 fee is applied is",
+              "always ≤ this value. Acts as the slippage guard."
+            ],
             "type": "u64"
           },
           {
             "name": "min_lp_out",
+            "docs": [
+              "Minimum LP tokens the provider must receive after the 7.5% protocol",
+              "lock. Slippage guard against pool state shifting between quote + send."
+            ],
             "type": "u64"
           }
         ]
@@ -1420,10 +1436,22 @@
           },
           {
             "name": "min_sol_out",
+            "docs": [
+              "Minimum SOL the provider must receive. SOL has no transfer fee, so",
+              "the wallet receives this amount exactly."
+            ],
             "type": "u64"
           },
           {
             "name": "min_tokens_out",
+            "docs": [
+              "Minimum tokens the provider must receive, in gross units (before any",
+              "Token-2022 transfer fee on the recipient side). The wallet may receive",
+              "slightly less if the mint has a non-zero `TransferFeeConfig` — clients",
+              "should subtract the per-mint rate to render the expected receipt. The",
+              "emitted `LiquidityRemoved` event includes both `tokens_out_gross` and",
+              "`tokens_out_net` for reconciliation."
+            ],
             "type": "u64"
           }
         ]
@@ -1440,10 +1468,21 @@
           },
           {
             "name": "minimum_out",
+            "docs": [
+              "Minimum acceptable output, in gross units (i.e. before any Token-2022",
+              "transfer fee skimmed from the recipient side on the buy path). The",
+              "actual amount the user wallet receives may be slightly less if the",
+              "token has a transfer fee — wallets should subtract the mint's",
+              "`TransferFeeConfig` rate from this value to render the expected",
+              "receipt. Sell path is unaffected (output is SOL, no transfer fee)."
+            ],
             "type": "u64"
           },
           {
             "name": "buy",
+            "docs": [
+              "true = SOL → Token (buy), false = Token → SOL (sell)."
+            ],
             "type": "bool"
           }
         ]

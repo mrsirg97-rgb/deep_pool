@@ -29,7 +29,11 @@ CREATE TABLE IF NOT EXISTS reserves (
     UNIQUE (signature, inner_ix_idx)
 );
 
-CREATE INDEX IF NOT EXISTS reserves_pool_slot_idx ON reserves(pool_id, last_slot DESC, reserve_id DESC);
+-- Matches the latest_for_pools / list query order. Tiebreak is on
+-- (signature, inner_ix_idx) — both NOT NULL columns from the UNIQUE
+-- constraint — so cross-page same-slot ordering is stable across re-runs.
+CREATE INDEX IF NOT EXISTS reserves_pool_slot_idx
+    ON reserves(pool_id, last_slot DESC, signature DESC, inner_ix_idx DESC);
 
 CREATE TABLE IF NOT EXISTS swaps (
     swap_id              SERIAL PRIMARY KEY,

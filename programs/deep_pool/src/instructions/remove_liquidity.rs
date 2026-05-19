@@ -16,7 +16,15 @@ use crate::state::Pool;
 #[derive(AnchorDeserialize, AnchorSerialize)]
 pub struct RemoveLiquidityArgs {
     pub lp_amount: u64,
+    /// Minimum SOL the provider must receive. SOL has no transfer fee, so
+    /// the wallet receives this amount exactly.
     pub min_sol_out: u64,
+    /// Minimum tokens the provider must receive, in gross units (before any
+    /// Token-2022 transfer fee on the recipient side). The wallet may receive
+    /// slightly less if the mint has a non-zero `TransferFeeConfig` — clients
+    /// should subtract the per-mint rate to render the expected receipt. The
+    /// emitted `LiquidityRemoved` event includes both `tokens_out_gross` and
+    /// `tokens_out_net` for reconciliation.
     pub min_tokens_out: u64,
 }
 
@@ -64,7 +72,10 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
     let sol_reserve = Pool::sol_reserve(&pool_info)?;
     let token_reserve = ctx.accounts.token_vault.amount;
     let lp_supply = ctx.accounts.lp_mint.supply;
-    require!(sol_reserve > 0 && token_reserve > 0, DeepPoolError::EmptyPool);
+    require!(
+        sol_reserve > 0 && token_reserve > 0,
+        DeepPoolError::EmptyPool
+    );
     require!(lp_supply > 0, DeepPoolError::EmptyPool);
 
     // 1. Compute proportional share
@@ -73,17 +84,29 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
     let tokens_out = math::calc_lp_redeem(args.lp_amount, token_reserve, lp_supply)
         .ok_or(DeepPoolError::MathOverflow)?;
     // 2. Slippage checks
-    require!(sol_out >= args.min_sol_out, DeepPoolError::SolOutputSlippage);
-    require!(tokens_out >= args.min_tokens_out, DeepPoolError::TokenOutputSlippage);
+    require!(
+        sol_out >= args.min_sol_out,
+        DeepPoolError::SolOutputSlippage
+    );
+    require!(
+        tokens_out >= args.min_tokens_out,
+        DeepPoolError::TokenOutputSlippage
+    );
 
-    // 3. Ensure pool retains minimum reserves after removal
+    // 3. Ensure pool retains the protocol-minimum reserves after removal.
+    //    Locked LP (20% creator + 7.5% per add) makes a full drain impossible
+    //    in practice, but this check enforces the floor cleanly + matches the
+    //    semantic of the `MinimumLiquidityRequired` error.
     let sol_remaining = sol_reserve
         .checked_sub(sol_out)
         .ok_or(DeepPoolError::MathOverflow)?;
     let tokens_remaining = token_reserve
         .checked_sub(tokens_out)
         .ok_or(DeepPoolError::MathOverflow)?;
-    require!(sol_remaining > 0 && tokens_remaining > 0, DeepPoolError::MinimumLiquidityRequired);
+    require!(
+        sol_remaining >= MIN_INITIAL_SOL && tokens_remaining >= MIN_INITIAL_TOKENS,
+        DeepPoolError::MinimumLiquidityRequired
+    );
 
     // 4. Burn LP tokens from provider
     token_interface::burn(
@@ -101,7 +124,12 @@ pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Resu
     // 5. Transfer tokens from vault to provider (CPI — must happen before lamport manipulation)
     let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
-    let pool_seeds = &[POOL_SEED,config_key.as_ref(),mint_key.as_ref(),&[ctx.accounts.pool.bump]];
+    let pool_seeds = &[
+        POOL_SEED,
+        config_key.as_ref(),
+        mint_key.as_ref(),
+        &[ctx.accounts.pool.bump],
+    ];
     let signer_seeds = &[&pool_seeds[..]];
     let provider_token_balance_before = ctx.accounts.provider_token_account.amount;
 

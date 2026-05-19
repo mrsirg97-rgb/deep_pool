@@ -381,3 +381,75 @@ fn verify_lp_lock_rates() {
         assert!(to_provider < lp); // < 100%
     }
 }
+
+// ============================================================================
+// 8. calc_proportional — used by add_liquidity to derive the SOL side from
+// the actual net token deposit (post-Token-2022 fee). Math is the same shape
+// as calc_lp_redeem; these proofs anchor the function-by-name to its semantics.
+// ============================================================================
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_proportional_zero_input() {
+    let reserves: [(u64, u64); 3] = [
+        (1, 1),
+        (200_000_000_000, 150_000_000_000_000),
+        (u64::MAX / 2, u64::MAX / 2),
+    ];
+    for (ra, rb) in reserves {
+        assert!(calc_proportional(0, ra, rb) == Some(0));
+    }
+}
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_proportional_identity() {
+    // calc_proportional(reserve_a, reserve_a, reserve_b) == reserve_b
+    // (a full-share deposit maps to the full opposite reserve)
+    let cases: [(u64, u64); 4] = [
+        (1_000_000_000, 1_000_000_000),
+        (200_000_000_000, 150_000_000_000_000),
+        (u64::MAX / 2, u64::MAX / 2),
+        (1, u64::MAX),
+    ];
+    for (ra, rb) in cases {
+        assert!(calc_proportional(ra, ra, rb) == Some(rb));
+    }
+}
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_proportional_overflow_returns_none() {
+    // Result = input * reserve_b / reserve_a. With reserve_a = 1 and both
+    // input and reserve_b near u64::MAX, the quotient is ≈ input * reserve_b,
+    // which exceeds u64::MAX → must return None, not silently truncate.
+    let input: u64 = u64::MAX;
+    let reserve_b: u64 = u64::MAX;
+    assert!(calc_proportional(input, 1, reserve_b) == None);
+
+    // Same shape just past the u64 boundary.
+    let half = u64::MAX / 2 + 1;
+    assert!(calc_proportional(half, 1, 3) == None);
+}
+
+// Sibling proofs: calc_lp_mint and calc_lp_redeem received the same
+// try_from hardening — verify they also reject overflow rather than
+// truncating.
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_lp_mint_overflow_returns_none() {
+    // lp_supply * deposit / reserve, with reserve = 1, must overflow u64.
+    let lp_supply: u64 = u64::MAX;
+    let deposit: u64 = u64::MAX;
+    assert!(calc_lp_mint(lp_supply, deposit, 1) == None);
+}
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_lp_redeem_overflow_returns_none() {
+    // lp_amount * reserve / lp_supply, with lp_supply = 1, must overflow u64.
+    let lp_amount: u64 = u64::MAX;
+    let reserve: u64 = u64::MAX;
+    assert!(calc_lp_redeem(lp_amount, reserve, 1) == None);
+}

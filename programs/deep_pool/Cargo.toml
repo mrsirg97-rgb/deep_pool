@@ -1,6 +1,6 @@
 [package]
 name = "deep_pool"
-version = "4.1.0"
+version = "4.2.0"
 description = "Immutable constant-product pool protocol"
 edition = "2021"
 
@@ -25,3 +25,8 @@ anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }
 
 [dev-dependencies]
 proptest = "1.5"
+litesvm = "0.7"
+solana-sdk = "2"
+solana-program = "2"
+solana-system-interface = "1"
+spl-token-2022 = "8"

@@ -1,8 +1,8 @@
 # DeepPool Security Audit
 
-**Date:** April 28, 2026
-**Auditor:** Claude Opus 4.7 (Anthropic)
-**Version:** 4.0.0
+**Date:** May 19, 2026
+**Auditor:** Claude Opus 4.7 (Anthropic) + independent review by Qwen3.6-35B (local)
+**Version:** 4.2.0
 **Framework:** Anchor 0.32.1 / Solana 3.0
 **Program ID:** `CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT`
 **Deployment:** Devnet + Mainnet
@@ -14,8 +14,9 @@
 | Component | Files | Description |
 |-----------|-------|-------------|
 | Program | 8 source files | Constant-product AMM with signer-verified namespaces, fee compounding, and LP locks |
-| Kani proofs | 16 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates |
-| Proptests | 19 properties | Fuzz-verified math properties across 10,000 random cases each (see [properties.md](./properties.md)) |
+| Kani proofs | 21 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None` |
+| Proptests | 24 properties | Fuzz-verified math properties across 10,000 random cases each (see [properties.md](./properties.md)) |
+| Litesvm integration | 18 tests | End-to-end exercises of all 4 instructions, including Token-2022 fee handling + H1/M1 regression guards |
 | SDK | 1 source file | Transaction builders, quote engine, PDA derivation |
 
 ---
@@ -40,7 +41,7 @@ Four protocol-level changes shipped since the previous audit. All are strictly d
 
 ### v2.0.0 — Signer-verified namespace (pool squatting fix)
 
-`create_pool` now takes a `config: Signer`. Pool PDA derivation changed from `["deep_pool", mint]` to `["deep_pool", config, mint]`. This eliminates a class of griefing attacks documented in [pool-initialization-griefing.md](./pool-initialization-griefing.md) — attackers who hold bonding-curve tokens could previously pre-create the pool PDA with garbage parameters and permanently block legitimate migration. With v2.0, each caller has an isolated namespace keyed on a pubkey they must sign for, making front-running cryptographically impossible.
+`create_pool` now takes a `config: Signer`. Pool PDA derivation changed from `["deep_pool", mint]` to `["deep_pool", config, mint]`. This eliminates a class of griefing attacks documented in [pool-namespacing.md](./pool-namespacing.md) — attackers who hold bonding-curve tokens could previously pre-create the pool PDA with garbage parameters and permanently block legitimate migration. With v2.0, each caller has an isolated namespace keyed on a pubkey they must sign for, making front-running cryptographically impossible.
 
 ### v3.0.0 — Unified swap path (CPI trust model removed)
 
@@ -86,6 +87,33 @@ Four event types: `PoolCreated`, `SwapExecuted`, `LiquidityAdded`, `LiquidityRem
 **Implementation detail — Token-2022 fee delta measurement.** Outbound token transfers (swap buy, remove_liquidity) now reload the recipient's token account after the transfer to compute `_net` amounts (= post-balance − pre-balance). This robustly captures whatever Token-2022 extension fees siphon between sender and recipient, regardless of which extension is configured. Inbound transfers already used this pattern (`vault_before` measurement); v4 brings outbound parity.
 
 **Boxing-driven account-frame fix.** `#[event_cpi]` adds two accounts to every ix's deserialization frame. `CreatePool` and `RemoveLiquidity` exceeded the 4096-byte BPF stack with the additional accounts; both structs are now `Box<Account<...>>` / `Box<InterfaceAccount<...>>` to push the heavy fields onto the heap. `AddLiquidity` was already boxed; `Swap` stays unboxed (frame still fits). Behaviorally identical, just a memory-layout adjustment.
+
+### v4.2.0 — Math hygiene + audit follow-ups
+
+Six fixes across program, math, indexer, and SDK. All strictly defensive.
+
+**Program (`add_liquidity.rs`, `remove_liquidity.rs`):**
+
+- **`sol_required` now derives from `net_tokens`, not the gross `args.token_amount`.** Pre-v4.2, depositors over-paid SOL by exactly the Token-2022 transfer-fee fraction for fee-bearing mints (donated to existing LPs). Now: pre-validate against worst-case (assume zero fee) for the slippage guard, perform the transfer, then compute the exact `sol_required` from the post-fee net. Provider pays SOL strictly proportional to what actually landed in the vault. Validated by litesvm regression test `add_liquidity::sol_paid_matches_net_tokens_under_transfer_fee`.
+- **`remove_liquidity` minimum-reserve floor tightened** from `> 0` to `>= MIN_INITIAL_SOL && >= MIN_INITIAL_TOKENS`. Locked LP (20% creator + 7.5% per add) already made a dust-floor drain impossible in practice, but the check now matches the semantic of the `MinimumLiquidityRequired` error.
+
+**Math (`math.rs`):**
+
+- **New `calc_proportional(input, reserve_a, reserve_b)`** — replaces the semantic misuse of `calc_lp_redeem` for proportional deposits. Same `a*b/c` shape, but the name matches the actual caller intent so a future hardening (e.g., adding `lp_amount ≤ lp_supply` validation) doesn't silently break liquidity math.
+- **`u128 → u64` truncation closed across the LP-math family.** `calc_lp_mint`, `calc_lp_redeem`, and `calc_proportional` previously silently truncated when the intermediate u128 product exceeded `u64::MAX`. Now use `u64::try_from(result).ok()` — overflow returns `None`, surfaced as `MathOverflow`. Three new Kani proofs (`verify_*_overflow_returns_none`) verify this exhaustively.
+
+**Indexer (`domain/reserves.rs`, `01-schema.sql`):**
+
+- **"Latest reserves" tiebreak moved from `reserve_id DESC` to `signature DESC, inner_ix_idx DESC`.** The SERIAL `reserve_id` increments per insert, which means same-slot events split across two backfill pages end up with inverted reserve_ids relative to chain order — so the "latest" pick could flip during catch-up. The UNIQUE-constrained `(signature, inner_ix_idx)` tuple is deterministic from event identity and stable across re-runs. Index updated to match.
+
+**SDK (`packages/sdk/src/getters.ts`):**
+
+- **`getMintTransferFeeBps(connection, mint)`** — reads the active fee from a Token-2022 mint's `TransferFeeConfig` at the current epoch (returns 0 for SPL-Token or fee-free mints).
+- **`getSwapQuoteForMint(connection, mint, ...)`** — one-shot read + compute. Avoids the silent-mispricing footgun of passing the default `transferFeeBps = 0` to `getSwapQuote` for fee-bearing mints. Original `getSwapQuote` keeps the pure-compute signature with a docstring guiding wallets toward the right helper.
+
+**Test surface added.** Litesvm integration suite (`tests/litesvm/`) — 18 tests covering all 4 instructions end-to-end, including Token-2022 fee handling and the H1 + M1 regression guards. Plus 5 new Kani proofs (3 for `calc_proportional`, 2 for sibling overflow). Total: **21 Kani proofs + 24 proptests + 18 litesvm tests + E2E**.
+
+**Net behavioral changes.** Deposits priced fairly under Token-2022 transfer fees; `remove_liquidity` floor semantic matches its error name; LP-math overflow returns `MathOverflow` instead of silently truncating; indexer "latest reserves" stable across backfill re-runs; SDK exposes a fee-aware quote helper. No new attack surface.
 
 ---
 

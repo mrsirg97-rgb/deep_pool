@@ -18,7 +18,14 @@ export type {
   SwapQuote,
   SwapRow,
 } from './types'
-export { getPool, getPoolByAddress, getPoolsForMint, getSwapQuote } from './getters'
+export {
+  getPool,
+  getPoolByAddress,
+  getPoolsForMint,
+  getSwapQuote,
+  getSwapQuoteForMint,
+  getMintTransferFeeBps,
+} from './getters'
 export type { ReadOptions } from './getters'
 export { getSwapHistory, getLiquidityHistory } from './indexer'
 export { createIndexerBus } from './bus'

@@ -15,8 +15,18 @@ use crate::state::Pool;
 
 #[derive(AnchorDeserialize, AnchorSerialize)]
 pub struct AddLiquidityArgs {
+    /// Tokens the provider intends to deposit, in gross units. The handler
+    /// measures the net amount that actually lands in the vault (after any
+    /// Token-2022 transfer fee) and derives the required SOL deposit from
+    /// that net value — the provider pays SOL strictly proportional to what
+    /// they actually contribute, not the pre-fee gross.
     pub token_amount: u64,
+    /// Worst-case SOL the provider is willing to spend (assumes zero transfer
+    /// fee). Actual `sol_required` after the Token-2022 fee is applied is
+    /// always ≤ this value. Acts as the slippage guard.
     pub max_sol_amount: u64,
+    /// Minimum LP tokens the provider must receive after the 7.5% protocol
+    /// lock. Slippage guard against pool state shifting between quote + send.
     pub min_lp_out: u64,
 }
 
@@ -78,12 +88,15 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
     let lp_supply = ctx.accounts.lp_mint.supply;
     require!(lp_supply > 0, DeepPoolError::EmptyPool);
 
-    // 1. Compute required SOL for proportional deposit
-    let sol_required = math::calc_lp_redeem(args.token_amount, sol_reserve, token_reserve)
+    // 1. Pre-flight slippage check against worst-case SOL cost (assume zero
+    //    transfer fee — actual sol_required derived from net_tokens below is
+    //    always ≤ this worst case, so passing this check guarantees the
+    //    provider's max_sol_amount is respected.)
+    let worst_case_sol = math::calc_proportional(args.token_amount, token_reserve, sol_reserve)
         .ok_or(DeepPoolError::MathOverflow)?;
-    require!(sol_required > 0, DeepPoolError::ZeroDeposit);
+    require!(worst_case_sol > 0, DeepPoolError::ZeroDeposit);
     require!(
-        sol_required <= args.max_sol_amount,
+        worst_case_sol <= args.max_sol_amount,
         DeepPoolError::SolSlippageExceeded
     );
 
@@ -113,7 +126,14 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(net_tokens > 0, DeepPoolError::ZeroDeposit);
 
-    // 3. Transfer SOL from provider to pool PDA
+    // 3. Compute actual SOL deposit from net_tokens (after Token-2022 fee).
+    //    Provider pays exactly the proportional share of what actually landed
+    //    in the vault — no silent over-payment.
+    let sol_required = math::calc_proportional(net_tokens, token_reserve, sol_reserve)
+        .ok_or(DeepPoolError::MathOverflow)?;
+    require!(sol_required > 0, DeepPoolError::ZeroDeposit);
+
+    // 4. Transfer SOL from provider to pool PDA
     anchor_lang::system_program::transfer(
         CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
@@ -125,7 +145,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
         sol_required,
     )?;
 
-    // 4. Compute LP tokens to mint (proportional to token deposit)
+    // 5. Compute LP tokens to mint (proportional to token deposit)
     let lp_amount = math::calc_lp_mint(lp_supply, net_tokens, token_reserve)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(lp_amount > 0, DeepPoolError::ZeroDeposit);
@@ -134,7 +154,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
         DeepPoolError::TokenOutputSlippage
     );
 
-    // 5. Lock 7.5% of LP in the pool PDA — permanently inaccessible
+    // 6. Lock 7.5% of LP in the pool PDA — permanently inaccessible
     let lp_burn = (lp_amount as u128)
         .checked_mul(LP_LOCK_PROVIDER_BPS as u128)
         .ok_or(DeepPoolError::MathOverflow)?
@@ -145,7 +165,7 @@ pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()>
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(lp_to_provider > 0, DeepPoolError::ZeroDeposit);
 
-    // 6. Mint LP: 92.5% to provider, 7.5% to pool PDA (permanently locked)
+    // 7. Mint LP: 92.5% to provider, 7.5% to pool PDA (permanently locked)
     let config_key = ctx.accounts.pool.config;
     let mint_key = ctx.accounts.pool.token_mint;
     let pool_seeds = &[

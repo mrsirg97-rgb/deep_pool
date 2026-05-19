@@ -40,11 +40,15 @@ pub async fn latest_for_pools(
     if pool_ids.is_empty() {
         return Ok(Vec::new());
     }
+    // Tiebreak on (signature DESC, inner_ix_idx DESC) instead of reserve_id
+    // so cross-page same-slot events from backfill are deterministic — see
+    // stream/backfill.rs note on page-ordering. reserve_id ordering inverts
+    // across pages because SERIAL increments per insert, not by chain time.
     sqlx::query_as::<_, ReservesRow>(
         "SELECT DISTINCT ON (pool_id) *
          FROM reserves
          WHERE pool_id = ANY($1)
-         ORDER BY pool_id, last_slot DESC, reserve_id DESC",
+         ORDER BY pool_id, last_slot DESC, signature DESC, inner_ix_idx DESC",
     )
     .bind(pool_ids)
     .fetch_all(&mut **tx)
@@ -68,7 +72,7 @@ pub async fn list(
     if let Some(before) = filter.before {
         qb.push(" AND created_at < ").push_bind(before);
     }
-    qb.push(" ORDER BY last_slot DESC, reserve_id DESC");
+    qb.push(" ORDER BY last_slot DESC, signature DESC, inner_ix_idx DESC");
     if let Some(limit) = filter.limit {
         qb.push(" LIMIT ").push_bind(limit);
     }

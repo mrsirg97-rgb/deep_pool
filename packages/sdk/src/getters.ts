@@ -1,5 +1,10 @@
 import { BorshCoder, Idl } from '@coral-xyz/anchor'
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
+import {
+  getTransferFeeConfig,
+  TOKEN_2022_PROGRAM_ID,
+  unpackMint,
+} from '@solana/spl-token'
 import idl from './deep_pool.json'
 import { FEE_DENOMINATOR, POOL_ACCOUNT_SIZE, PROGRAM_ID, SWAP_FEE_BPS } from './constants'
 import { PoolState, SwapQuote } from './types'
@@ -147,11 +152,60 @@ async function getPoolByAddressFromRpc(
 // Pure compute (no IO)
 // ============================================================================
 
+/// Read the active transfer-fee bps from a Token-2022 mint at the current
+/// epoch. Returns 0 if the mint has no TransferFeeConfig extension, the
+/// current epoch's fee config is uninitialized, or the account read fails.
+/// Wallets that want an accurate swap quote should pass the result into
+/// `getSwapQuote`. Returns 0 for SPL-Token (non-2022) mints.
+export const getMintTransferFeeBps = async (
+  connection: Connection,
+  mint: PublicKey,
+): Promise<number> => {
+  try {
+    const info = await connection.getAccountInfo(mint)
+    if (!info) return 0
+    if (!info.owner.equals(TOKEN_2022_PROGRAM_ID)) return 0
+    const mintAcct = unpackMint(mint, info, TOKEN_2022_PROGRAM_ID)
+    const feeConfig = getTransferFeeConfig(mintAcct)
+    if (!feeConfig) return 0
+    const epoch = BigInt((await connection.getEpochInfo()).epoch)
+    const active =
+      epoch >= feeConfig.newerTransferFee.epoch
+        ? feeConfig.newerTransferFee
+        : feeConfig.olderTransferFee
+    return Number(active.transferFeeBasisPoints)
+  } catch {
+    return 0
+  }
+}
+
+/// One-shot helper: read the mint's active transfer-fee bps and compute the
+/// quote. Use this when you have a connection but only the mint pubkey —
+/// avoids the silent-mispricing footgun of passing the default 0 for a
+/// fee-bearing mint. Pure callers (no IO) should keep using `getSwapQuote`.
+export const getSwapQuoteForMint = async (
+  connection: Connection,
+  mint: PublicKey,
+  solReserve: number,
+  tokenReserve: number,
+  amountIn: number,
+  buy: boolean,
+): Promise<SwapQuote> => {
+  const transferFeeBps = await getMintTransferFeeBps(connection, mint)
+  return getSwapQuote(solReserve, tokenReserve, amountIn, buy, transferFeeBps)
+}
+
 export const getSwapQuote = (
   solReserve: number,
   tokenReserve: number,
   amountIn: number,
   buy: boolean,
+  /// Token-2022 transfer fee in bps for this mint. Default 0 covers
+  /// fee-free mints and SPL-Token mints. **For Token-2022 mints with a
+  /// non-zero TransferFeeConfig, callers must pass the right rate** or the
+  /// quote will be off by exactly the fee fraction — use
+  /// `getMintTransferFeeBps(connection, mint)` to fetch it, or call
+  /// `getSwapQuoteForMint` to do the read + compute in one shot.
   transferFeeBps: number = 0,
 ): SwapQuote => {
   if (solReserve <= 0 || tokenReserve <= 0 || amountIn <= 0) {
