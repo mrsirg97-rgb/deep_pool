@@ -155,10 +155,11 @@ Outside a browser (SSR, Node tests) `createIndexerBus` returns a no-op bus.
 - **Self-deepening** — 0.25% swap fee compounds into reserves. K only grows.
 - **No freeze authority** — LP tokens can never be frozen by anyone.
 - **Token-2022 native** — no WSOL wrapping.
+- **Mint extension blocklist** — `TransferHook`, `PermanentDelegate`, `InterestBearingConfig`, `MintCloseAuthority`, `NonTransferable`, `DefaultAccountState`, and `Pausable` mints are rejected at pool creation. `TransferFeeConfig` and metadata/group extensions are fully supported.
 - **Native SOL** — SOL reserve is pool PDA lamports, not a token account.
 - **Immutable pools** — no admin, no fee switch, no close.
 - **No protocol fee** — 0% extraction. All fees stay in the pool.
-- **Formally verified** — Kani proofs cover swap math, LP math, K invariant, LP locks.
+- **Formally verified** — 21 Kani proofs + 24 proptest properties cover swap math, LP math, K invariant, LP locks, and overflow handling.
 
 ## Constants
 

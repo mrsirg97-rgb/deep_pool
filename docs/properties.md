@@ -7,7 +7,7 @@ DeepPool's core arithmetic is property-tested using [proptest](https://proptest-
 Proptest complements the Kani harnesses ([verification.md](./verification.md)): Kani proves exact correctness at concrete values, proptest explores the full u64 input space with thousands of randomly-drawn cases and automatically shrinks any failing input down to the minimal reproducing case.
 
 **Tool:** proptest 1.x
-**Target:** `deep_pool` v4.2.0
+**Target:** `deep_pool` v5.0.0
 **Properties:** 24 properties across 7 modules, all passing
 **Cases per property:** 10,000 (5,000 for the composite roundtrip)
 **Total assertions per run:** ~230,000
@@ -17,6 +17,8 @@ Proptest complements the Kani harnesses ([verification.md](./verification.md)): 
 > **v4.0.0 note.** v4 added `emit_cpi!` event emission to all four instructions. Events are observability, not protocol logic — they don't affect the constant-product math, fee accumulation, or LP minting/redemption arithmetic. The original 19 properties continue to pass against the v4.0.0 binary.
 >
 > **v4.2.0 note.** Added a new `calc_proportional` module with 4 properties: zero-input identity, full-input maps to full-opposite reserve, monotonicity in input, and algebraic equivalence with `calc_lp_redeem` (guards against drift if either function is refactored). Plus an explicit overflow-returns-`None` property that exercises the new `u64::try_from` hardening across the LP-math family.
+>
+> **v5.0.0 note.** Jupiter-readiness hardening pass — Token-2022 extension blocklist, explicit `token_program` constraint, explicit rent-exempt assertion at the swap-sell lamport site, and account-list cleanup. Pure-math surface is unchanged; all 24 properties continue to pass against the v5.0.0 binary.
 
 Located under `tests/` rather than `src/` so the `proptest!` macro DSL isn't parsed by Anchor's `#[program]` safety-check macro, which walks the lib source tree with syn and doesn't understand macro semantics.
 

@@ -83,6 +83,93 @@ fn buy_zero_input_rejected() {
 }
 
 #[test]
+fn report_swap_cu() {
+    // Diagnostic: prints CU for buy and sell on a hot (already-existing ATA)
+    // and cold (first-time ATA via idempotent create) path. Run with:
+    //   cargo test --test litesvm swap::report_swap_cu -- --nocapture
+    use crate::harness::{build_create_ata_idempotent_ix, derive_ata, spl_ata_program_id};
+    use deep_pool::accounts::Swap as SwapAccounts;
+    use deep_pool::constants::TOKEN_2022_PROGRAM_ID;
+    use anchor_lang::{InstructionData, ToAccountMetas};
+    use solana_sdk::{instruction::Instruction, system_program};
+
+    let mut env = Env::new();
+    let (p, mint, authority) = live_pool(&mut env, 0);
+    let user = env.new_funded(5 * LAMPORTS_PER_SOL);
+    mint_to_user(&mut env, &mint, &authority, &user, 100_000_000_000);
+
+    // ---------- Cold buy (create ATA + swap, single tx) ----------
+    let user_token = derive_ata(&user.pubkey(), &p.mint, &TOKEN_2022_PROGRAM_ID);
+    let create_ata = build_create_ata_idempotent_ix(
+        &user.pubkey(),
+        &user.pubkey(),
+        &p.mint,
+        &TOKEN_2022_PROGRAM_ID,
+    );
+    let _ = spl_ata_program_id(); // suppress unused-warning if removed later
+    let swap_ix = Instruction {
+        program_id: deep_pool::ID,
+        accounts: SwapAccounts {
+            user: user.pubkey(),
+            sol_source: user.pubkey(),
+            pool: p.pool,
+            token_mint: p.mint,
+            token_vault: p.token_vault,
+            user_token_account: user_token,
+            token_program: TOKEN_2022_PROGRAM_ID,
+            system_program: system_program::ID,
+            event_authority: crate::harness::derive_event_authority(),
+            program: deep_pool::ID,
+        }
+        .to_account_metas(None),
+        data: deep_pool::instruction::Swap {
+            args: deep_pool::instructions::swap::SwapArgs {
+                amount_in: 100_000_000,
+                minimum_out: 1,
+                buy: true,
+            },
+        }
+        .data(),
+    };
+    let cu_cold = env
+        .send_with_cu(&[create_ata, swap_ix.clone()], &[&user])
+        .expect("cold swap");
+    eprintln!("CU (cold: createATA + swap, one tx) = {}", cu_cold);
+
+    // ---------- Hot buy (ATA already exists, swap only) ----------
+    let cu_hot_buy = env.send_with_cu(&[swap_ix.clone()], &[&user]).expect("hot buy");
+    eprintln!("CU (hot buy, swap-only) = {}", cu_hot_buy);
+
+    // ---------- Hot sell (ATA already exists, swap only) ----------
+    let sell_ix = Instruction {
+        program_id: deep_pool::ID,
+        accounts: SwapAccounts {
+            user: user.pubkey(),
+            sol_source: user.pubkey(),
+            pool: p.pool,
+            token_mint: p.mint,
+            token_vault: p.token_vault,
+            user_token_account: user_token,
+            token_program: TOKEN_2022_PROGRAM_ID,
+            system_program: system_program::ID,
+            event_authority: crate::harness::derive_event_authority(),
+            program: deep_pool::ID,
+        }
+        .to_account_metas(None),
+        data: deep_pool::instruction::Swap {
+            args: deep_pool::instructions::swap::SwapArgs {
+                amount_in: 10_000_000,
+                minimum_out: 1,
+                buy: false,
+            },
+        }
+        .data(),
+    };
+    let cu_hot_sell = env.send_with_cu(&[sell_ix], &[&user]).expect("hot sell");
+    eprintln!("CU (hot sell, swap-only) = {}", cu_hot_sell);
+}
+
+#[test]
 fn k_invariant_grows_on_buy() {
     let mut env = Env::new();
     let (p, _mint, _authority) = live_pool(&mut env, 0);

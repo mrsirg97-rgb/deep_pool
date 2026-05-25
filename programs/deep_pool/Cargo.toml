@@ -1,12 +1,16 @@
 [package]
 name = "deep_pool"
-version = "4.2.0"
+version = "5.0.0"
 description = "Immutable constant-product pool protocol"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
 name = "deep_pool"
+# Anchor #[program] handlers + #[derive(Accounts)] structs can't run outside
+# an SBPF/Anchor context, so any doctest example would either fail to compile
+# or be a lie. Skip the doctest phase entirely.
+doctest = false
 
 [features]
 default = []
@@ -21,7 +25,7 @@ custom-panic = []
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed", "event-cpi"] }
-anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }
+anchor-spl = { version = "0.32.1", features = ["token", "associated_token", "token_2022", "token_2022_extensions"] }
 
 [dev-dependencies]
 proptest = "1.5"

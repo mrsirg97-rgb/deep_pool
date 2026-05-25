@@ -75,6 +75,32 @@ impl Env {
         self.svm.latest_blockhash()
     }
 
+    pub fn send_with_cu(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> Result<u64, TransactionError> {
+        let payer = signers
+            .first()
+            .expect("at least one signer (payer)")
+            .pubkey();
+        self.svm.expire_blockhash();
+        let mut tx = Transaction::new_with_payer(ixs, Some(&payer));
+        tx.sign(signers, self.latest_blockhash());
+        match self.svm.send_transaction(tx) {
+            Ok(meta) => Ok(meta.compute_units_consumed),
+            Err(failed) => {
+                if std::env::var("LITESVM_LOGS").is_ok() {
+                    eprintln!("--- tx failed: {:?} ---", failed.err);
+                    for line in &failed.meta.logs {
+                        eprintln!("{}", line);
+                    }
+                }
+                Err(failed.err)
+            }
+        }
+    }
+
     pub fn send(
         &mut self,
         ixs: &[Instruction],
@@ -178,6 +204,48 @@ pub fn create_mint(env: &mut Env, transfer_fee_bps: u16, decimals: u8) -> (Pubke
     let payer = clone_keypair(&env.payer);
     env.send(&ixs, &[&payer, &mint])
         .expect("create_mint failed");
+    (mint.pubkey(), authority)
+}
+
+/// Create a Token-2022 mint with `MintCloseAuthority` enabled — used to
+/// exercise the create_pool extension-blocklist rejection path.
+pub fn create_mint_with_close_authority(env: &mut Env, decimals: u8) -> (Pubkey, Keypair) {
+    use spl_token_2022::{
+        extension::ExtensionType, instruction as token_ix, state::Mint,
+    };
+
+    let mint = Keypair::new();
+    let authority = env.new_funded(LAMPORTS_PER_SOL);
+
+    let extensions = vec![ExtensionType::MintCloseAuthority];
+    let space = ExtensionType::try_calculate_account_len::<Mint>(&extensions).unwrap();
+    let rent = env.svm.minimum_balance_for_rent_exemption(space);
+
+    let create = system_instruction::create_account(
+        &env.payer.pubkey(),
+        &mint.pubkey(),
+        rent,
+        space as u64,
+        &TOKEN_2022_PROGRAM_ID,
+    );
+    let init_close = token_ix::initialize_mint_close_authority(
+        &TOKEN_2022_PROGRAM_ID,
+        &mint.pubkey(),
+        Some(&authority.pubkey()),
+    )
+    .unwrap();
+    let init_mint = token_ix::initialize_mint2(
+        &TOKEN_2022_PROGRAM_ID,
+        &mint.pubkey(),
+        &authority.pubkey(),
+        Some(&authority.pubkey()),
+        decimals,
+    )
+    .unwrap();
+
+    let payer = clone_keypair(&env.payer);
+    env.send(&[create, init_close, init_mint], &[&payer, &mint])
+        .expect("create_mint_with_close_authority failed");
     (mint.pubkey(), authority)
 }
 
@@ -422,6 +490,14 @@ pub fn swap(
 ) -> Result<(), TransactionError> {
     // ATA via local derive helper (no spl-ata dep)
     let user_token = derive_ata(&user.pubkey(), &p.mint, &TOKEN_2022_PROGRAM_ID);
+    // Prepend idempotent ATA create — the swap ix no longer inits the user ATA.
+    // Idempotent: cheap when the ATA already exists, creates it otherwise.
+    let create_ata = build_create_ata_idempotent_ix(
+        &user.pubkey(),
+        &user.pubkey(),
+        &p.mint,
+        &TOKEN_2022_PROGRAM_ID,
+    );
     let ix = Instruction {
         program_id: deep_pool::ID,
         accounts: deep_pool::accounts::Swap {
@@ -432,7 +508,6 @@ pub fn swap(
             token_vault: p.token_vault,
             user_token_account: user_token,
             token_program: TOKEN_2022_PROGRAM_ID,
-            associated_token_program: spl_ata_program_id(),
             system_program: system_program::ID,
             event_authority: derive_event_authority(),
             program: deep_pool::ID,
@@ -447,7 +522,7 @@ pub fn swap(
         }
         .data(),
     };
-    env.send(&[ix], &[user])
+    env.send(&[create_ata, ix], &[user])
 }
 
 // ============================================================================

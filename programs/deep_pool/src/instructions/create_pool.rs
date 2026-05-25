@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
+    token_2022::spl_token_2022::{
+        extension::{BaseStateWithExtensions, ExtensionType, StateWithExtensions},
+        state::Mint as SplMint,
+    },
     token_interface::{
         self, Mint as MintInterface, MintTo, TokenAccount as TokenAccountInterface, TokenInterface,
         TransferChecked,
@@ -12,6 +16,53 @@ use crate::error::DeepPoolError;
 use crate::events::PoolCreated;
 use crate::math;
 use crate::state::Pool;
+
+/// Blocklist of Token-2022 mint extensions DeepPool refuses to host.
+///
+/// Each entry either breaks the pool's correctness assumption (live vault
+/// balance = current reserve) or opens a rugpull / DoS vector. Anything not
+/// on this list is accepted — including future spl-token-2022 extensions
+/// not yet released. Rationale: DeepPool is immutable-by-design (after
+/// upgrade-authority revocation), so a blocklist gracefully accepts new
+/// metadata/display extensions while still rejecting the known-malicious
+/// surface. See docs/audit.md I-5.
+///
+/// Confidential* family is intentionally *not* blocked. It is not live on
+/// mainnet today; if/when it ships and DeepPool grows a confidential code
+/// path, this is the natural place to gate it.
+fn extension_is_blocked(ext: ExtensionType) -> bool {
+    matches!(
+        ext,
+        // Arbitrary code on every transfer → DoS + Jupiter routing reliability:
+        ExtensionType::TransferHook
+        // Authority can transfer from any account, including vault → drain:
+        | ExtensionType::PermanentDelegate
+        // Stored amount drifts over time → pool math diverges from user view:
+        | ExtensionType::InterestBearingConfig
+        // Mint can be closed → entire pool orphaned:
+        | ExtensionType::MintCloseAuthority
+        // Transfers always fail → no swaps possible:
+        | ExtensionType::NonTransferable
+        // New accounts (incl. vault) could initialize Frozen → vault unusable:
+        | ExtensionType::DefaultAccountState
+        // Authority can halt all transfers → DoS pool:
+        | ExtensionType::Pausable
+    )
+}
+
+/// Reject mints carrying any blocked extension at pool-creation time.
+fn validate_mint_extensions(mint_info: &AccountInfo) -> Result<()> {
+    let data = mint_info.try_borrow_data()?;
+    let state = StateWithExtensions::<SplMint>::unpack(&data)
+        .map_err(|_| error!(DeepPoolError::NotToken2022))?;
+    for ext in state.get_extension_types().unwrap_or_default() {
+        require!(
+            !extension_is_blocked(ext),
+            DeepPoolError::UnsupportedMintExtension
+        );
+    }
+    Ok(())
+}
 
 #[derive(AnchorDeserialize, AnchorSerialize)]
 pub struct CreatePoolArgs {
@@ -93,12 +144,13 @@ pub struct CreatePool<'info> {
         associated_token::token_program = token_program,
     )]
     pub pool_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
+    #[account(constraint = token_program.key() == TOKEN_2022_PROGRAM_ID @ DeepPoolError::NotToken2022)]
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
+pub(crate) fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
     require!(
         args.initial_sol_amount >= MIN_INITIAL_SOL,
         DeepPoolError::InsufficientInitialSol
@@ -107,6 +159,12 @@ pub fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<()> {
         args.initial_token_amount >= MIN_INITIAL_TOKENS,
         DeepPoolError::InsufficientInitialTokens
     );
+
+    // 0. Reject mints with extensions DeepPool can't safely route around
+    //    (transfer hooks, permanent delegates, confidential transfers,
+    //    interest-bearing, close authority, etc). Allowlist-based; new
+    //    spl-token-2022 extensions are rejected until reviewed.
+    validate_mint_extensions(&ctx.accounts.token_mint.to_account_info())?;
 
     // 1. Transfer tokens from creator to vault (measure net for Token-2022 fee)
     let vault_before = ctx.accounts.token_vault.amount;

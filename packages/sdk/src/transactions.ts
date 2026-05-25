@@ -1,6 +1,7 @@
 import { BN, BorshCoder, Idl } from '@coral-xyz/anchor'
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token'
@@ -106,6 +107,18 @@ export const buildSwapTransaction = async (
     false,
     TOKEN_2022_PROGRAM_ID,
   )
+  // Swap ix no longer inits the user ATA — prepend an idempotent create.
+  // Cheap when the ATA exists; creates it on the cold path. Required because
+  // the program-side `init_if_needed` was dropped (CPI callers with program-
+  // owned authorities couldn't fund rent via system_program anyway).
+  const createUserAta = createAssociatedTokenAccountIdempotentInstruction(
+    user, // payer
+    userTokenAccount,
+    user, // owner
+    tokenMint,
+    TOKEN_2022_PROGRAM_ID,
+  )
+
   const ix = await buildInstruction(
     'swap',
     {
@@ -116,7 +129,6 @@ export const buildSwapTransaction = async (
       tokenVault: vault,
       userTokenAccount,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
       eventAuthority: EVENT_AUTHORITY,
       program: PROGRAM_ID,
@@ -130,7 +142,7 @@ export const buildSwapTransaction = async (
     },
   )
 
-  const tx = new Transaction().add(ix)
+  const tx = new Transaction().add(createUserAta, ix)
   tx.feePayer = user
   const { blockhash } = await connection.getLatestBlockhash()
   tx.recentBlockhash = blockhash

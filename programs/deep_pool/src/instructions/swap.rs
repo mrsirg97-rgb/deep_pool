@@ -1,10 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token_interface::{
-        self, Mint as MintInterface, TokenAccount as TokenAccountInterface, TokenInterface,
-        TransferChecked,
-    },
+use anchor_spl::token_interface::{
+    self, Mint as MintInterface, TokenAccount as TokenAccountInterface, TokenInterface,
+    TransferChecked,
 };
 
 use crate::constants::*;
@@ -47,17 +44,21 @@ pub struct Swap<'info> {
     pub token_mint: InterfaceAccount<'info, MintInterface>,
     #[account(mut, address = pool.token_vault)]
     pub token_vault: InterfaceAccount<'info, TokenAccountInterface>,
-    // User's token account — ATA enforced.
+    // User's token account — ATA enforced. Must exist; callers prepend
+    // `createAssociatedTokenAccountIdempotent` (SPL ATA program) when needed.
+    // Dropping `init_if_needed` here is structural: a program-owned `user`
+    // (e.g. a CPI vault) cannot fund rent via system_program, so the init
+    // branch was already broken on the cold path for CPI callers. Keeping the
+    // ATA constraint preserves substitution safety.
     #[account(
-        init_if_needed,
-        payer = user,
+        mut,
         associated_token::mint = token_mint,
         associated_token::authority = user,
         associated_token::token_program = token_program,
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccountInterface>,
+    #[account(constraint = token_program.key() == TOKEN_2022_PROGRAM_ID @ DeepPoolError::NotToken2022)]
     pub token_program: Interface<'info, TokenInterface>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
@@ -70,7 +71,7 @@ struct SwapMetrics {
     fee: u64,
 }
 
-pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
+pub(crate) fn handler(mut ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
     require!(args.amount_in > 0, DeepPoolError::ZeroInput);
     let pool_info = ctx.accounts.pool.to_account_info();
     let sol_reserve = Pool::sol_reserve(&pool_info)?;
@@ -81,9 +82,9 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
     );
 
     let metrics = if args.buy {
-        handle_buy(&ctx, &args, sol_reserve, token_reserve)?
+        handle_buy(&mut ctx, &args, sol_reserve, token_reserve)?
     } else {
-        handle_sell(&ctx, &args, sol_reserve, token_reserve)?
+        handle_sell(&mut ctx, &args, sol_reserve, token_reserve)?
     };
 
     // Post-trade reserves — read live so the event reflects committed state.
@@ -117,7 +118,7 @@ pub fn handler(ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
 /// fee); the recipient-side fee is reported via `amount_out_net` in the
 /// emitted event.
 fn handle_buy(
-    ctx: &Context<Swap>,
+    ctx: &mut Context<Swap>,
     args: &SwapArgs,
     sol_reserve: u64,
     token_reserve: u64,
@@ -179,9 +180,10 @@ fn handle_buy(
     )?;
 
     // User-side delta exposes Token-2022 transfer-fee leakage.
-    let mut user_token_account = ctx.accounts.user_token_account.clone();
-    user_token_account.reload()?;
-    let user_received = user_token_account
+    ctx.accounts.user_token_account.reload()?;
+    let user_received = ctx
+        .accounts
+        .user_token_account
         .amount
         .checked_sub(user_token_balance_before)
         .ok_or(DeepPoolError::MathOverflow)?;
@@ -200,7 +202,7 @@ fn handle_buy(
 /// `amount_out_net == amount_out_gross` and `minimum_out` matches what the
 /// SOL sink receives.
 fn handle_sell(
-    ctx: &Context<Swap>,
+    ctx: &mut Context<Swap>,
     args: &SwapArgs,
     sol_reserve: u64,
     token_reserve: u64,
@@ -222,9 +224,10 @@ fn handle_sell(
         ctx.accounts.token_mint.decimals,
     )?;
 
-    let mut token_vault = ctx.accounts.token_vault.clone();
-    token_vault.reload()?;
-    let net_received = token_vault
+    ctx.accounts.token_vault.reload()?;
+    let net_received = ctx
+        .accounts
+        .token_vault
         .amount
         .checked_sub(vault_before)
         .ok_or(DeepPoolError::MathOverflow)?;
@@ -244,11 +247,17 @@ fn handle_sell(
 
     // 4. Transfer SOL from pool PDA to sol_source. Direct lamport manipulation
     //    is required here — system_program::transfer can't move funds out of a
-    //    program-owned account. Rent-exempt floor is preserved because the
-    //    `sol_out < sol_reserve` check above bounds the withdrawal, and
-    //    `sol_reserve = lamports - rent_exempt`, so `lamports - sol_out` stays
-    //    strictly above rent_exempt.
+    //    program-owned account. The `sol_out < sol_reserve` check above
+    //    already guarantees `lamports - sol_out > rent_exempt`; the explicit
+    //    pre-mutation assertion below makes the invariant visible at the
+    //    mutation site and survives any future refactor that weakens the
+    //    upstream precondition.
     let pool_info = ctx.accounts.pool.to_account_info();
+    let rent = Rent::get()?;
+    require!(
+        pool_info.lamports().saturating_sub(sol_out) >= rent.minimum_balance(Pool::LEN),
+        DeepPoolError::MinimumLiquidityRequired
+    );
     pool_info.sub_lamports(sol_out)?;
     ctx.accounts
         .sol_source

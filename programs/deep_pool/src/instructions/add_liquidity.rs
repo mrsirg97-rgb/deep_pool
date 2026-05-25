@@ -71,12 +71,13 @@ pub struct AddLiquidity<'info> {
         associated_token::token_program = token_program,
     )]
     pub pool_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
+    #[account(constraint = token_program.key() == TOKEN_2022_PROGRAM_ID @ DeepPoolError::NotToken2022)]
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
+pub(crate) fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
     require!(args.token_amount > 0, DeepPoolError::ZeroDeposit);
     let pool_info = ctx.accounts.pool.to_account_info();
     let sol_reserve = Pool::sol_reserve(&pool_info)?;

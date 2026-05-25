@@ -5,7 +5,9 @@ use solana_sdk::{
 };
 
 use crate::expect_err;
-use crate::harness::{create_mint, create_pool, get_pool, mint_to_user, Env};
+use crate::harness::{
+    create_mint, create_mint_with_close_authority, create_pool, get_pool, mint_to_user, Env,
+};
 use deep_pool::constants::*;
 use deep_pool::error::DeepPoolError;
 
@@ -84,4 +86,23 @@ fn token_2022_fee_lands_net_in_vault() {
     let pool = get_pool(&env, &p.pool);
     assert!(pool.initial_tokens < 100_000_000_000); // net < gross
     assert!(pool.initial_tokens >= 99_000_000_000); // ~1% loss
+}
+
+#[test]
+fn rejects_blocked_extension_mint_close_authority() {
+    // Mints carrying MintCloseAuthority can be closed by the authority,
+    // orphaning every account that references the mint — including pool LP +
+    // vault. create_pool must refuse such mints at the extension blocklist.
+    let mut env = Env::new();
+    let (mint, authority) = create_mint_with_close_authority(&mut env, 6);
+    let creator = env.new_funded(10 * LAMPORTS_PER_SOL);
+    mint_to_user(&mut env, &mint, &authority, &creator, 10_000_000_000_000);
+    let r = create_pool(
+        &mut env,
+        &creator,
+        &mint,
+        100_000_000_000,
+        2 * LAMPORTS_PER_SOL,
+    );
+    expect_err!(r, DeepPoolError::UnsupportedMintExtension);
 }

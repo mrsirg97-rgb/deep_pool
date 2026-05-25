@@ -1,8 +1,8 @@
 # DeepPool Security Audit
 
-**Date:** May 19, 2026
+**Date:** May 25, 2026
 **Auditor:** Claude Opus 4.7 (Anthropic) + independent review by Qwen3.6-35B (local)
-**Version:** 4.2.0
+**Version:** 5.0.0
 **Framework:** Anchor 0.32.1 / Solana 3.0
 **Program ID:** `CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT`
 **Deployment:** Devnet + Mainnet
@@ -16,7 +16,7 @@
 | Program | 8 source files | Constant-product AMM with signer-verified namespaces, fee compounding, and LP locks |
 | Kani proofs | 21 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None` |
 | Proptests | 24 properties | Fuzz-verified math properties across 10,000 random cases each (see [properties.md](./properties.md)) |
-| Litesvm integration | 18 tests | End-to-end exercises of all 4 instructions, including Token-2022 fee handling + H1/M1 regression guards |
+| Litesvm integration | 20 tests | End-to-end exercises of all 4 instructions, including Token-2022 fee handling, extension blocklist rejection, H1/M1 regression guards, and a CU bench |
 | SDK | 1 source file | Transaction builders, quote engine, PDA derivation |
 
 ---
@@ -115,6 +115,53 @@ Six fixes across program, math, indexer, and SDK. All strictly defensive.
 
 **Net behavioral changes.** Deposits priced fairly under Token-2022 transfer fees; `remove_liquidity` floor semantic matches its error name; LP-math overflow returns `MathOverflow` instead of silently truncating; indexer "latest reserves" stable across backfill re-runs; SDK exposes a fee-aware quote helper. No new attack surface.
 
+### v5.0.0 — Jupiter-readiness pass
+
+Pre-submission audit pass focused on the swap path, Token-2022 surface, and program-level idiomatic cleanups. Three of the changes are minor breaking (account list + error code), one is a behavioral gate (extension blocklist), the rest are internal hardening. SDK and IDL updated in lockstep.
+
+**Program — `swap.rs`:**
+
+- **Dropped `init_if_needed` from `user_token_account`.** The `payer = user, authority = user` coupling was structurally broken for CPI callers whose `user` is a program-owned PDA (system_program rejects rent funding from non-system accounts), so the init branch silently failed on the cold path for torch and other CPI integrators. Industry convention (Whirlpools, Phoenix, Raydium CLMM) requires user ATAs to pre-exist. Callers prepend `createAssociatedTokenAccountIdempotent` upstream; the SPL ATA program is idempotent so this is cheap when the ATA exists. Removes the `associated_token_program` field from the `Swap` context — minor breaking change for direct integrators (IDL + SDK regenerated). Wallets and Jupiter routes are unaffected: both already create ATAs in the outer tx.
+- **Explicit rent-exempt floor assertion** added before the direct `sub_lamports` in `handle_sell`. The `sol_out < sol_reserve` precondition still provides the primary mathematical guarantee; the new pre-mutation `require!(lamports - sol_out >= rent_minimum_balance(Pool::LEN))` makes the invariant visible at the mutation site and survives any future refactor that weakens the upstream check. Failure returns `MinimumLiquidityRequired`.
+- **`&mut Context<Swap>` threading** in `handle_buy` / `handle_sell` replaces the `clone() + reload()` workaround. The handlers now call `ctx.accounts.{user_token_account, token_vault}.reload()` directly. No behavior change — the clones shared underlying `AccountInfo`, so the data read was identical. Read order is cleaner and the borrow shape is correct.
+
+**Program — explicit `token_program == TOKEN_2022_PROGRAM_ID` constraint** added to all four instruction contexts (`create_pool`, `add_liquidity`, `remove_liquidity`, `swap`). Was previously enforced implicitly via mint owner — the CPI would fail at the token program if the wrong program ID were passed. The explicit constraint short-circuits at account validation with the existing `NotToken2022` error, surfacing the failure mode at the right layer.
+
+**Program — Token-2022 mint extension blocklist on `create_pool`.** Closes audit I-5. Mints carrying any of the following extensions are rejected at pool creation with the new `UnsupportedMintExtension` error (code 6013):
+
+| Extension | Reason |
+|---|---|
+| `TransferHook` | Arbitrary code on every transfer → DoS + composability risk |
+| `PermanentDelegate` | Delegate authority can transfer from any account → vault drain vector |
+| `InterestBearingConfig` | Stored amount drifts over time → pool math diverges from user view |
+| `MintCloseAuthority` | Mint can be closed by authority → entire pool orphaned |
+| `NonTransferable` | Transfers fail → no swaps possible |
+| `DefaultAccountState` | New accounts (incl. vault) could be created Frozen |
+| `Pausable` | Authority can halt transfers → DoS pool |
+
+Blocklist, not allowlist — chosen specifically because DeepPool is immutable-by-design (audit I-1, upgrade authority intended for revocation). An allowlist would permanently reject every future benign extension (Metadata, Group, etc.); a blocklist gracefully accepts new metadata/display additions while rejecting the known-malicious surface. `Confidential*` family intentionally not blocked — not live on mainnet today, and reserved as the natural gate point if/when DeepPool grows a confidential-aware code path. Implementation in `create_pool::validate_mint_extensions`, with a regression test (`tests/litesvm/create_pool::rejects_blocked_extension_mint_close_authority`) confirming a `MintCloseAuthority` mint is rejected with the expected error.
+
+**Program — `instructions.rs` re-exports.** Each instruction module's `handler` is now `pub(crate)` instead of `pub`. The `#[allow(ambiguous_glob_reexports)]` attribute and the underlying lint are gone — the collision was the four public `handler` symbols colliding through glob re-exports at crate root. Glob re-exports are still in place because Anchor's `#[program]` macro needs the generated `__client_accounts_*` modules visible from the crate root.
+
+**Program — `Cargo.toml`:**
+
+- Enabled `anchor-spl` features `token_2022` + `token_2022_extensions` to bring `spl_token_2022::extension::*` types into scope for the blocklist check.
+- Added `doctest = false` under `[lib]`. The `#[program]` handlers + `#[derive(Accounts)]` structs can't run outside an SBPF/Anchor context, so doctest examples would either fail to compile or be misleading.
+
+**Performance.** Hot-path swap CU after all v5.0.0 changes (measured via litesvm with `compute_units_consumed`):
+
+| Path | CU |
+|---|---|
+| Hot buy (swap-only, ATA exists) | ~23-26k |
+| Hot sell (swap-only, ATA exists) | ~21-24k |
+| Cold (createATA-idempotent + swap, one tx) | ~28-33k |
+
+Range reflects litesvm keypair randomization across runs. Even at the upper bound, DeepPool sits ~40% below Raydium CPMM's hot-path swap (benchmarked at 30-40k via torch integration). The new explicit `token_program` constraint costs ~100-300 CU per ix; trade-off accepted for the explicit failure mode.
+
+**Test surface added.** One new litesvm test (`rejects_blocked_extension_mint_close_authority`) for the extension blocklist. One new diagnostic test (`report_swap_cu`) that doubles as a CU regression guard via `Env::send_with_cu`. Total: **21 Kani proofs + 24 proptests + 20 litesvm tests + E2E**.
+
+**Net behavioral changes.** Swap ix account list shrunk by one (no more `associated_token_program`); callers must pre-create user ATA (idempotent SPL helper); explicit Token-2022 program identity check on every ix; mints with rugpull/DoS extensions rejected at pool creation; rent-exempt floor explicitly asserted at the lamport mutation site. **No new attack surface.** SDK + IDL regenerated.
+
 ---
 
 ## Architecture
@@ -182,8 +229,11 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 8. **LP redemption bounded** — formally verified: cannot exceed proportional share
 9. **First-depositor attack mitigated** — `MIN_INITIAL_SOL` + `MIN_LIQUIDITY` floor
 10. **Token-2022 fee handling** — net vault balance measured post-transfer, not input amount
-11. **Native SOL** — no WSOL wrapping/unwrapping complexity
-12. **Checked arithmetic** — all math uses `checked_mul` / `checked_div` with u128 intermediaries
+11. **Token-2022 extension blocklist** — `TransferHook`, `PermanentDelegate`, `InterestBearingConfig`, `MintCloseAuthority`, `NonTransferable`, `DefaultAccountState`, `Pausable` all rejected at pool creation (v5.0.0)
+12. **Explicit Token-2022 program identity** — `token_program == TOKEN_2022_PROGRAM_ID` enforced at account validation on every ix (v5.0.0)
+13. **Explicit rent-exempt assertion at mutation site** — swap sell path asserts `lamports - sol_out >= rent_minimum_balance(Pool::LEN)` before `sub_lamports` (v5.0.0)
+14. **Native SOL** — no WSOL wrapping/unwrapping complexity
+15. **Checked arithmetic** — all math uses `checked_mul` / `checked_div` with u128 intermediaries
 
 ---
 
@@ -220,19 +270,15 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 
 **Impact:** Not exploitable. The pattern is intentional — it means LPs get any stray SOL donations for free. Worth documenting because a naive reviewer may mis-identify this as an oracle manipulation surface.
 
-### I-5: Token-2022 extension compatibility is not universal
+### I-5: Token-2022 extension compatibility — RESOLVED in v5.0.0
 
-**Description:** DeepPool supports Token-2022 with transfer-fee and metadata extensions (tested end-to-end). Untested configurations:
-- Interest-bearing mints (stored amount vs displayed amount semantics)
-- Confidential transfer extensions
-- Transfer hook extensions with complex hook programs
-- Permanent delegate extension
+**Description (original):** DeepPool supported Token-2022 with transfer-fee and metadata extensions (tested end-to-end). Untested configurations included interest-bearing mints, confidential transfer extensions, transfer hooks, and permanent delegate.
 
-**Analysis:** Transfer hooks specifically are not a reentrancy vulnerability — the standard specifies hooks run *after* the balance update, so any reentrant call sees post-trade state. But a malicious hook could still consume CU / fail the outer transfer. Interest-bearing mints may accumulate interest between reads in a way that drifts reserves.
+**Resolution:** v5.0.0 added an explicit extension blocklist enforced at `create_pool`. Mints carrying any of `TransferHook`, `PermanentDelegate`, `InterestBearingConfig`, `MintCloseAuthority`, `NonTransferable`, `DefaultAccountState`, or `Pausable` are rejected at pool creation with `UnsupportedMintExtension`. Implementation: `create_pool::validate_mint_extensions`. Regression test: `tests/litesvm/create_pool::rejects_blocked_extension_mint_close_authority`.
 
-**Impact:** Integrators should restrict pool creation to known-compatible mint configurations. Torch does this via its bonding-curve mint template.
+**Design choice — blocklist over allowlist.** Chosen specifically because DeepPool is immutable-by-design (see I-1). An allowlist locks the protocol into permanently rejecting every future benign extension; a blocklist gracefully accepts new metadata/display additions (e.g. forthcoming spl-token-2022 releases) while still rejecting the known-malicious surface. The `Confidential*` family is intentionally not blocked — not live on mainnet today, and the natural gate point if/when DeepPool grows a confidential-aware code path.
 
-**Recommendation:** Document supported extensions explicitly. Consider adding an instruction-level check that rejects unsupported extensions at `create_pool` if the ecosystem settles on a standard allowlist.
+**Status:** Closed. Documented supported / blocked extensions are now enforced at the program level, not just by integrator convention.
 
 ### I-6: Sub-400-lamport swap fee rounds to zero
 
@@ -263,12 +309,17 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 | Price manipulation | Constant product = quadratic slippage | BY DESIGN |
 | Sandwich attacks | 0.25% fee compounds into pool | MITIGATED |
 | Token-2022 fee mismatch | Net vault balance measured post-transfer | MITIGATED |
-| Token-2022 transfer-hook reentrancy | Hooks run post-state; no exploitable path | CONSIDERED |
+| Token-2022 transfer-hook reentrancy | Hooks run post-state; v5.0.0 rejects `TransferHook` mints at create_pool | MITIGATED |
+| Token-2022 permanent-delegate vault drain | v5.0.0 rejects `PermanentDelegate` mints at create_pool | MITIGATED |
+| Token-2022 interest-bearing reserve drift | v5.0.0 rejects `InterestBearingConfig` mints at create_pool | MITIGATED |
+| Token-2022 mint-close rugpull | v5.0.0 rejects `MintCloseAuthority` mints at create_pool | MITIGATED |
+| Token-2022 pause / freeze-by-default DoS | v5.0.0 rejects `Pausable` + `DefaultAccountState` + `NonTransferable` at create_pool | MITIGATED |
+| token_program substitution | v5.0.0 explicit `key() == TOKEN_2022_PROGRAM_ID` constraint on every ix | MITIGATED |
 | Rounding exploits | Floor on output, u128 intermediaries | MITIGATED |
 | First-depositor inflation | `MIN_LIQUIDITY` + `MIN_INITIAL_SOL` | MITIGATED |
 | LP drain | LP lock floor = locked_LP / supply × reserves | MITIGATED |
 | Bank run | Locked LP unredeemable, floor holds | MITIGATED |
-| Pool drained past rent | `sol_reserve` subtracts rent_exempt, checked on exit | MITIGATED |
+| Pool drained past rent | `sol_reserve` subtracts rent_exempt; v5.0.0 adds explicit pre-mutation `require!` at the swap-sell lamport site | MITIGATED |
 | Direct SOL donation | Captured by LPs via K growth | BY DESIGN |
 | Account substitution | PDA + ATA + Signer constraints throughout | MITIGATED |
 | LP token freeze | No freeze authority on LP mint | MITIGATED |
@@ -283,9 +334,9 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 
 Two complementary layers, both passing:
 
-**Kani (exhaustive model checking)** — 16 proof harnesses covering swap math, LP math, fee conservation, K invariant, and LP lock rates. See [verification.md](./verification.md).
+**Kani (exhaustive model checking)** — 21 proof harnesses covering swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, and overflow-returns-`None` across the LP-math family. See [verification.md](./verification.md).
 
-**Proptest (fuzz-style property testing)** — 19 properties × 10,000 cases per property (5,000 for the composite swap-roundtrip) covering the full u64 input range. Complements Kani's concrete exactness with broad random coverage including roundtrip no-extraction under multi-step compositions. See [properties.md](./properties.md).
+**Proptest (fuzz-style property testing)** — 24 properties × 10,000 cases per property (5,000 for the composite swap-roundtrip) covering the full u64 input range. Complements Kani's concrete exactness with broad random coverage including roundtrip no-extraction under multi-step compositions. See [properties.md](./properties.md).
 
 Key proven / property-tested invariants:
 - Fee conservation (no leakage)
@@ -302,12 +353,14 @@ Key proven / property-tested invariants:
 
 ## Conclusion
 
-DeepPool v4.0.0 closes two classes of latent issue present in v1.0.8 and adds structured event emission for off-chain consumers:
+DeepPool v5.0.0 stacks five protocol-level defenses on top of the v1.0.8 baseline:
 
 1. **Pool squatting** is cryptographically blocked by signer-verified namespaces (v2.0).
 2. **CPI deposit trust** is eliminated by the unified `System.transfer` path (v3.0) and preserved composability via `sol_source` (v3.1).
 3. **Event observability** lands via `emit_cpi!` (v4.0) — every state-changing instruction emits a typed payload through inner instructions, with `(signature, inner_ix_idx)` as a stable idempotency key for downstream indexers.
+4. **Math hygiene + Token-2022 transfer-fee parity** (v4.2) — LP-math overflow returns `MathOverflow`; deposits priced fairly under transfer-fee mints.
+5. **Jupiter-readiness hardening** (v5.0) — Token-2022 extension blocklist closes I-5; explicit `token_program` constraint and rent-exempt assertion strengthen defense-in-depth; swap account list slimmed for industry-standard ATA handling; CU profile measured at ~21-26k hot path, ~40% below Raydium CPMM.
 
 The LP lock ratchet (20% creator / 7.5% provider, compounding) enforces a permanent reserve floor proportional to deposit history — the pool can never be drained past that ratio without an `add_liquidity` call that immediately widens the ratio.
 
-Combined with 0.25% fee compounding, no freeze authority on LP tokens, and no admin or close instruction, the protocol is minimal, verifiable, and permanently deep. No vulnerabilities found at any severity level.
+Combined with 0.25% fee compounding, no freeze authority on LP tokens, no admin or close instruction, and a blocklist that refuses mints carrying rugpull / DoS extensions, the protocol is minimal, verifiable, permanently deep, and safe to route through. No vulnerabilities found at any severity level.

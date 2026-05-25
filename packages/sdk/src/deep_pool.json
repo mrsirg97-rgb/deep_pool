@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "4.2.0",
+    "version": "5.0.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -984,10 +984,6 @@
           "name": "token_program"
         },
         {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         },
@@ -1170,6 +1166,11 @@
       "code": 6012,
       "name": "TokenOutputSlippage",
       "msg": "Token output below minimum (slippage exceeded)"
+    },
+    {
+      "code": 6013,
+      "name": "UnsupportedMintExtension",
+      "msg": "Mint uses a Token-2022 extension not supported by this pool"
     }
   ],
   "types": [

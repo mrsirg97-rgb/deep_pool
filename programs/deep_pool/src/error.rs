@@ -28,4 +28,6 @@ pub enum DeepPoolError {
     SolOutputSlippage,
     #[msg("Token output below minimum (slippage exceeded)")]
     TokenOutputSlippage,
+    #[msg("Mint uses a Token-2022 extension not supported by this pool")]
+    UnsupportedMintExtension,
 }

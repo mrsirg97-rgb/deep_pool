@@ -3,11 +3,13 @@ pub mod create_pool;
 pub mod remove_liquidity;
 pub mod swap;
 
-#[allow(ambiguous_glob_reexports)]
+// Glob-export each module so Anchor's #[program] macro can resolve the
+// generated `__client_accounts_*` / `__cpi_client_accounts_*` modules from
+// the crate root. The earlier `ambiguous_glob_reexports` warning was caused
+// by each module exporting a public `handler` fn that collided across globs
+// at crate root — those are now `pub(crate)`, so the lint is silent and we
+// don't need an allow attribute.
 pub use add_liquidity::*;
-#[allow(ambiguous_glob_reexports)]
 pub use create_pool::*;
-#[allow(ambiguous_glob_reexports)]
 pub use remove_liquidity::*;
-#[allow(ambiguous_glob_reexports)]
 pub use swap::*;

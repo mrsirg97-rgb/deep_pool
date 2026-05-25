@@ -61,12 +61,13 @@ pub struct RemoveLiquidity<'info> {
         constraint = provider_lp_account.amount >= args.lp_amount @ DeepPoolError::InsufficientLpTokens,
     )]
     pub provider_lp_account: Box<InterfaceAccount<'info, TokenAccountInterface>>,
+    #[account(constraint = token_program.key() == TOKEN_2022_PROGRAM_ID @ DeepPoolError::NotToken2022)]
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Result<()> {
+pub(crate) fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) -> Result<()> {
     require!(args.lp_amount > 0, DeepPoolError::ZeroInput);
     let pool_info = ctx.accounts.pool.to_account_info();
     let sol_reserve = Pool::sol_reserve(&pool_info)?;

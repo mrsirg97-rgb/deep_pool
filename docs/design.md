@@ -72,7 +72,8 @@ Initialize a new pool for a Token-2022 mint paired with native SOL, under a name
 - One pool per `(config, mint)` pair — PDA enforced
 - `initial_sol_amount >= MIN_INITIAL_SOL` (0.1 SOL)
 - `initial_token_amount >= MIN_INITIAL_TOKENS` (1 token)
-- Token must be Token-2022 (owner check)
+- Token must be Token-2022 (owner check + explicit `token_program == TOKEN_2022_PROGRAM_ID` constraint)
+- Mint must not carry any blocklisted Token-2022 extension (`TransferHook`, `PermanentDelegate`, `InterestBearingConfig`, `MintCloseAuthority`, `NonTransferable`, `DefaultAccountState`, `Pausable`) — see `validate_mint_extensions`
 - `sqrt(sol * tokens) > MIN_LIQUIDITY` (floor against first-depositor inflation)
 
 ### 2. `add_liquidity`
@@ -126,6 +127,8 @@ Exchange SOL for tokens (buy) or tokens for SOL (sell). The same instruction han
 
 For wallet callers, `sol_source == user` (one wallet signs both). For CPI callers, `sol_source` is typically a distinct system-owned PDA the caller signs for — see "Integration with Torch" below.
 
+**Precondition:** `user_token_account` must already exist as the user's ATA. v5.0.0 removed `init_if_needed` from this account — callers prepend `createAssociatedTokenAccountIdempotent` (SPL ATA program) in the same tx when the ATA might not exist. The idempotent helper is a no-op when the ATA exists, so wallets and Jupiter routes pay zero overhead in the steady state. Removing the in-handler init also fixes the cold-path failure mode for CPI callers whose `user` is a program-owned PDA — system_program rejects rent funding from non-system payers, so the previous `init_if_needed` branch silently failed for those callers.
+
 **Inputs:**
 - `amount_in` — amount of input asset
 - `minimum_out` — slippage protection
@@ -145,7 +148,8 @@ For wallet callers, `sol_source == user` (one wallet signs both). For CPI caller
 3. Fee on net received: `fee = net * 25 / 10000`
 4. Output: `sol_out = effective_in * sol_reserve / (token_reserve + effective_in)`
 5. Slippage check
-6. Direct lamport credit: `pool.lamports -= sol_out; sol_source.lamports += sol_out`
+6. Pre-mutation rent-exempt assertion (v5.0.0 defense-in-depth): `require!(pool.lamports - sol_out >= rent_minimum_balance(Pool::LEN))` — the upstream `sol_out < sol_reserve` check already guarantees this mathematically; the explicit assert documents the invariant at the mutation site
+7. Direct lamport credit: `pool.lamports -= sol_out; sol_source.lamports += sol_out`
 
 **Invariant:** `K_new >= K_old` after every swap. K never decreases. Proven by Kani for concrete cases, proptest-verified across 10,000 random cases per property.
 
@@ -251,15 +255,16 @@ programs/deep_pool/src/
   lib.rs                    — entrypoint, 4 instructions
   state.rs                  — Pool account struct + sol_reserve helper
   constants.rs              — seeds, fee rate, LP lock rates, minimums, TOKEN_2022_PROGRAM_ID
-  error.rs                  — error codes
+  error.rs                  — error codes (incl. UnsupportedMintExtension)
   math.rs                   — checked constant-product math + integer_sqrt
-  kani_proofs.rs            — 16 formal verification proofs
-  instructions.rs           — module root
+  kani_proofs.rs            — 21 formal verification proofs
+  instructions.rs           — module root (explicit re-exports, handlers are pub(crate))
   instructions/
-    create_pool.rs          — pool init, signer-verified namespace, initial LP mint (80/20)
+    create_pool.rs          — pool init, signer-verified namespace, Token-2022 extension blocklist, initial LP mint (80/20)
     add_liquidity.rs        — proportional deposit, LP mint (92.5/7.5)
     remove_liquidity.rs     — LP burn, proportional withdrawal
-    swap.rs                 — buy/sell, unified System.transfer path, sol_source split
+    swap.rs                 — buy/sell, unified System.transfer path, sol_source split, explicit rent-exempt assertion on sell
 programs/deep_pool/tests/
-  math_proptests.rs         — 16 property-based fuzz tests (10,000 cases each)
+  math_proptests.rs         — 24 property-based fuzz tests (10,000 cases each)
+  litesvm/                  — 20 end-to-end tests (all 4 ixs, Token-2022 fees, extension rejection, CU bench)
 ```
