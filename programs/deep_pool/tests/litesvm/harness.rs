@@ -210,9 +210,7 @@ pub fn create_mint(env: &mut Env, transfer_fee_bps: u16, decimals: u8) -> (Pubke
 /// Create a Token-2022 mint with `MintCloseAuthority` enabled — used to
 /// exercise the create_pool extension-blocklist rejection path.
 pub fn create_mint_with_close_authority(env: &mut Env, decimals: u8) -> (Pubkey, Keypair) {
-    use spl_token_2022::{
-        extension::ExtensionType, instruction as token_ix, state::Mint,
-    };
+    use spl_token_2022::{extension::ExtensionType, instruction as token_ix, state::Mint};
 
     let mint = Keypair::new();
     let authority = env.new_funded(LAMPORTS_PER_SOL);

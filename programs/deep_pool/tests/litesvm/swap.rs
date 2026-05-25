@@ -88,10 +88,11 @@ fn report_swap_cu() {
     // and cold (first-time ATA via idempotent create) path. Run with:
     //   cargo test --test litesvm swap::report_swap_cu -- --nocapture
     use crate::harness::{build_create_ata_idempotent_ix, derive_ata, spl_ata_program_id};
+    use anchor_lang::{InstructionData, ToAccountMetas};
     use deep_pool::accounts::Swap as SwapAccounts;
     use deep_pool::constants::TOKEN_2022_PROGRAM_ID;
-    use anchor_lang::{InstructionData, ToAccountMetas};
-    use solana_sdk::{instruction::Instruction, system_program};
+    use solana_sdk::instruction::Instruction;
+    use solana_system_interface::program as system_program;
 
     let mut env = Env::new();
     let (p, mint, authority) = live_pool(&mut env, 0);
@@ -137,7 +138,9 @@ fn report_swap_cu() {
     eprintln!("CU (cold: createATA + swap, one tx) = {}", cu_cold);
 
     // ---------- Hot buy (ATA already exists, swap only) ----------
-    let cu_hot_buy = env.send_with_cu(&[swap_ix.clone()], &[&user]).expect("hot buy");
+    let cu_hot_buy = env
+        .send_with_cu(&[swap_ix.clone()], &[&user])
+        .expect("hot buy");
     eprintln!("CU (hot buy, swap-only) = {}", cu_hot_buy);
 
     // ---------- Hot sell (ATA already exists, swap only) ----------
