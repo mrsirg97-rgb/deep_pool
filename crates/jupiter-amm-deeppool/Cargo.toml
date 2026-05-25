@@ -1,0 +1,36 @@
+[package]
+name = "jupiter-amm-deeppool"
+version = "0.1.0"
+description = "Jupiter Amm trait implementation for DeepPool — routes SOL ↔ Token-2022 swaps through Jupiter."
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib"]
+doctest = false
+
+[dependencies]
+jupiter-amm-interface = "1.0.0-beta.0"
+anyhow = "1"
+# Use the split solana-* crates so types unify with jupiter-amm-interface
+# (which moved off the monolithic solana-sdk in 1.0.0-beta).
+solana-pubkey = "3"
+solana-account = "3"
+solana-instruction = "3"
+solana-rent = "3"
+solana-system-interface = "1"
+rust_decimal = "1"
+spl-token-2022 = "8"
+spl-associated-token-account = "8"
+deep_pool = { path = "../../programs/deep_pool", features = ["no-entrypoint"] }
+anchor-lang = "0.32.1"
+
+[dev-dependencies]
+# Litesvm + Solana SDK 2.x are the test runtime used to actually execute
+# swaps on a real (in-memory) Solana VM. Pubkey / Account / Instruction
+# types from the 2.x crates are bridged to jupiter-amm-interface's 3.x
+# types via local helpers — see tests/litesvm_roundtrip.rs.
+litesvm = "0.7"
+solana-sdk = "2"
+solana-system-interface = "1"
+spl-token-2022 = "8"
