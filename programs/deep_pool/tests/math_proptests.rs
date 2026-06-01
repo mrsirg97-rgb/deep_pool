@@ -349,3 +349,52 @@ proptest! {
         );
     }
 }
+
+// ============================================================================
+// TWAP oracle — price_q64 + accumulate_price
+// ============================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(10_000))]
+
+    #[test]
+    fn price_q64_none_iff_zero_denom(out in any::<u64>(), inp in any::<u64>()) {
+        match price_q64(out, inp) {
+            None => prop_assert_eq!(inp, 0),
+            Some(p) => {
+                prop_assert!(inp != 0);
+                prop_assert_eq!(p, ((out as u128) << 64) / (inp as u128));
+            }
+        }
+    }
+
+    #[test]
+    fn price_q64_monotonic_in_out(a in any::<u64>(), b in any::<u64>(), inp in 1u64..=u64::MAX) {
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        prop_assert!(price_q64(lo, inp).unwrap() <= price_q64(hi, inp).unwrap());
+    }
+
+    // A single step's wrapping difference recovers price × Δslot exactly.
+    #[test]
+    fn accumulate_price_step_difference_exact(price in any::<u128>(), d in any::<u64>()) {
+        let cum = accumulate_price(0, price, d);
+        prop_assert_eq!(cum, price.wrapping_mul(d as u128));
+    }
+
+    // Accumulating over a sequence then taking the wrapping difference from the
+    // start equals the summed contributions (mod 2^128) — the read_twap invariant.
+    #[test]
+    fn accumulate_price_sequence_difference_exact(
+        price in 0u128..=(1u128 << 90),
+        deltas in proptest::collection::vec(0u64..1_000_000u64, 0..32),
+    ) {
+        let start = 12345u128;
+        let mut cum = start;
+        let mut total = 0u128;
+        for d in &deltas {
+            cum = accumulate_price(cum, price, *d);
+            total = total.wrapping_add(price.wrapping_mul(*d as u128));
+        }
+        prop_assert_eq!(cum.wrapping_sub(start), total);
+    }
+}

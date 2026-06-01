@@ -39,7 +39,7 @@ pub struct Swap<'info> {
         seeds = [POOL_SEED, pool.config.as_ref(), pool.token_mint.as_ref()],
         bump = pool.bump,
     )]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.token_mint)]
     pub token_mint: InterfaceAccount<'info, MintInterface>,
     #[account(mut, address = pool.token_vault)]
@@ -80,6 +80,12 @@ pub(crate) fn handler(mut ctx: Context<Swap>, args: SwapArgs) -> Result<()> {
         sol_reserve > 0 && token_reserve > 0,
         DeepPoolError::EmptyPool
     );
+
+    // TWAP oracle: accumulate the price that held until now (pre-swap reserves)
+    // before the swap moves it. Keeperless — every swap advances the mark.
+    ctx.accounts
+        .pool
+        .record_observation(sol_reserve, token_reserve, Clock::get()?.slot)?;
 
     let metrics = if args.buy {
         handle_buy(&mut ctx, &args, sol_reserve, token_reserve)?

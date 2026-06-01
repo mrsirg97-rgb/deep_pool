@@ -60,6 +60,25 @@ pub fn calc_proportional(input: u64, reserve_a: u64, reserve_b: u64) -> Option<u
     u64::try_from(result).ok()
 }
 
+/// Q64.64 spot price of the `in` asset denominated in `out`:
+/// `(reserve_out << 64) / reserve_in`. For a SOL/token pool,
+/// `price_q64(sol_reserve, token_reserve)` is SOL-per-token (×2^64) and
+/// `price_q64(token_reserve, sol_reserve)` is token-per-SOL. `(u64 << 64)` maxes
+/// at `2^128 − 2^64`, so the shift never overflows u128. `None` iff
+/// `reserve_in == 0`. See docs/twap-oracle.md.
+pub fn price_q64(reserve_out: u64, reserve_in: u64) -> Option<u128> {
+    ((reserve_out as u128) << 64).checked_div(reserve_in as u128)
+}
+
+/// One TWAP accumulator step: `cum + price_q64 × slot_delta`, **wrapping**
+/// (Uniswap-style). The running cumulative is the true integral mod 2^128; a
+/// consumer recovers a window's accumulation with `wrapping_sub`, exact whenever
+/// the true window sum < 2^128 (every realistic window). Wrapping avoids a
+/// checked-add that would eventually fail on a long-lived pool.
+pub fn accumulate_price(cum: u128, price_q64: u128, slot_delta: u64) -> u128 {
+    cum.wrapping_add(price_q64.wrapping_mul(slot_delta as u128))
+}
+
 /// Integer square root via Newton's method. Used to seed the initial LP supply
 /// at pool creation: `sqrt(initial_sol * initial_tokens)`.
 pub fn integer_sqrt(n: u128) -> u128 {

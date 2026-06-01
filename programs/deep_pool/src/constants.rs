@@ -14,6 +14,16 @@ pub const MIN_INITIAL_TOKENS: u64 = 1_000_000; // 1 token (6 decimals)
                                                // LP lock rates: creator locks more, community LPs lock less.
 pub const LP_LOCK_CREATOR_BPS: u64 = 2000; // 20% on create_pool
 pub const LP_LOCK_PROVIDER_BPS: u64 = 750; // 7.5% on add_liquidity
+
+// --- TWAP oracle (in-pool, keeperless — see docs/twap-oracle.md) ---
+// Ring of periodic cumulative snapshots; window ≈ TWAP_RING_SIZE × spacing.
+pub const TWAP_RING_SIZE: usize = 16;
+// Min slots between ring snapshots. The live head advances every swap; the ring
+// only records at this cadence, so the lookback span is frequency-independent.
+pub const MIN_OBS_SPACING_SLOTS: u64 = 500;
+// Liquidity floor: pools thinner than this don't update the oracle (dust pools
+// produce manipulable marks). Mirrors torch MIN_SPOT_POOL_SOL.
+pub const MIN_SPOT_RESERVE: u64 = 5_000_000_000; // 5 SOL (mirrors torch MIN_POOL_SOL_LENDING)
                                            // Token-2022 program ID.
 pub const TOKEN_2022_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
     6, 221, 246, 225, 238, 117, 143, 222, 24, 66, 93, 188, 228, 108, 205, 218, 182, 26, 252, 77,

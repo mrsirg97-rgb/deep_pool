@@ -1,6 +1,7 @@
 export {
   FEE_DENOMINATOR,
   LAMPORTS_PER_SOL,
+  MIN_OBS_SPACING_SLOTS,
   POOL_ACCOUNT_SIZE,
   PROGRAM_ID,
   SWAP_FEE_BPS,
@@ -44,3 +45,5 @@ export {
   buildRemoveLiquidityTransaction,
   buildSwapTransaction,
 } from './transactions'
+export { getTwapSolPerTok, q64ToFloat, readTwapSolPerTok, twapStateFromDecodedPool } from './twap'
+export type { TwapObservation, TwapPoolState } from './twap'

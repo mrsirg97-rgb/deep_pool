@@ -453,3 +453,58 @@ fn verify_lp_redeem_overflow_returns_none() {
     let reserve: u64 = u64::MAX;
     assert!(calc_lp_redeem(lp_amount, reserve, 1) == None);
 }
+
+// ============================================================================
+// 10. TWAP oracle — price_q64 + accumulate_price (concrete: price_q64 divides,
+//     so a symbolic harness would explode the SAT solver)
+// ============================================================================
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_price_q64_at_scale() {
+    // Never panics: `(u64 << 64)` maxes at 2^128 − 2^64, fits u128. None iff the
+    // denominator is zero; otherwise exactly (out << 64) / in.
+    let pairs: [(u64, u64); 5] = [
+        (10_000_000_000, 1_000_000_000_000),    // 10 SOL / 1e12 tok (low price)
+        (1_000_000_000_000_000_000, 1_000_000), // huge / tiny (high price)
+        (1, 1_000_000_000_000_000_000),         // tiny / huge
+        (u64::MAX, u64::MAX),                   // extreme equal → exactly 2^64
+        (1_000_000_000, 0),                     // zero denom → None
+    ];
+    for (out, inp) in pairs {
+        let p = price_q64(out, inp);
+        if inp == 0 {
+            assert!(p.is_none());
+        } else {
+            assert!(p == Some(((out as u128) << 64) / (inp as u128)));
+        }
+    }
+}
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_accumulate_price_window_difference() {
+    // The invariant read_twap relies on: the wrapping difference of two heads
+    // recovers the exact accumulation between them, while it stays < 2^128.
+    let price: u128 = 184_467_440_737_095_516; // ~0.01 × 2^64
+    let start: u128 = 0;
+    let mut cum = start;
+    let deltas: [u64; 4] = [500, 1000, 750, 1234];
+    let mut total: u128 = 0;
+    for d in deltas {
+        cum = accumulate_price(cum, price, d);
+        total += price * (d as u128);
+    }
+    assert!(cum.wrapping_sub(start) == total);
+}
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_accumulate_price_wraps_exactly() {
+    // Even when the running head wraps past u128::MAX, the window difference is
+    // exact (this is why the cumulative can grow unbounded mod 2^128).
+    let price: u128 = 1_000_000_000_000_000_000;
+    let start: u128 = u128::MAX - 100;
+    let cum = accumulate_price(start, price, 5); // wraps
+    assert!(cum.wrapping_sub(start) == price * 5);
+}

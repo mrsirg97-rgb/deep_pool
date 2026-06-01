@@ -275,6 +275,8 @@ pub(crate) fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<
     ctx.accounts.pool.initial_sol = args.initial_sol_amount;
     ctx.accounts.pool.initial_tokens = net_tokens;
     ctx.accounts.pool.bump = ctx.bumps.pool;
+    // Seed the TWAP oracle clock; observations accrue as swaps happen.
+    ctx.accounts.pool.init_oracle(Clock::get()?.slot);
 
     // Post-state for the event. Vault was reloaded after the inbound transfer
     // and untouched since, so vault.amount is the live post-state.

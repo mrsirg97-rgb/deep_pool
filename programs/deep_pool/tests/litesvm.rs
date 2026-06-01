@@ -22,3 +22,6 @@ mod remove_liquidity;
 
 #[path = "litesvm/swap.rs"]
 mod swap;
+
+#[path = "litesvm/twap.rs"]
+mod twap;

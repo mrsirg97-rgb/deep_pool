@@ -1,6 +1,6 @@
 {
   "name": "deeppoolsdk",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "description": "sdk for interacting with deep_pool on chain",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,6 +11,7 @@
     "test:devnet": "npx tsx tests/test_devnet_e2e.ts",
     "test:local": "npx tsx tests/test_local_e2e.ts",
     "test:bus": "npx tsx tests/test_bus.ts",
+    "test:twap": "npx tsx tests/test_twap.ts",
     "format": "prettier --write src/ tests/"
   },
   "dependencies": {

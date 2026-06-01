@@ -153,6 +153,8 @@ For wallet callers, `sol_source == user` (one wallet signs both). For CPI caller
 
 **Invariant:** `K_new >= K_old` after every swap. K never decreases. Proven by Kani for concrete cases, proptest-verified across 10,000 random cases per property.
 
+**Oracle:** before the buy/sell branch, the handler advances the in-pool TWAP from the pre-swap reserves (`Pool::record_observation`) — the swap path is the *only* writer of the oracle state. See [TWAP Oracle](#twap-oracle).
+
 **Why `sol_source` is separate from `user`:** The buy path does `System.transfer(from=sol_source)`, which requires `sol_source.owner == system_program`. A CPI caller's state PDA is program-owned and can't be `from`. Splitting `user` (token authority, may be program-owned) and `sol_source` (SOL flow, must be system-owned for buys) lets CPI callers like torch use a program-owned state PDA for token ATAs while routing SOL through a separate system-owned lamport-holder PDA. Wallet callers pass the same account twice; Solana deduplicates the signature.
 
 ## Reserve Floor via LP Lock
@@ -196,6 +198,10 @@ LP_LOCK_PROVIDER_BPS = 750         // 7.5% locked on add_liquidity
 MIN_LIQUIDITY        = 1000        // subtracted from initial sqrt — anti first-depositor-inflation floor
 MIN_INITIAL_SOL      = 100_000_000 // 0.1 SOL
 MIN_INITIAL_TOKENS   = 1_000_000   // 1 token (6 decimals)
+// TWAP oracle (v6.0.0)
+TWAP_RING_SIZE         = 16          // ring of cumulative snapshots
+MIN_OBS_SPACING_SLOTS  = 500         // ring-snapshot cadence; window ≈ 16×500 ≈ 53 min @ 400ms
+MIN_SPOT_RESERVE       = 5_000_000_000 // 5 SOL dust floor — below this, no observations recorded
 ```
 
 ## LP Lock Economics
@@ -217,6 +223,22 @@ net_received = vault_balance_after - vault_balance_before
 ```
 
 Same for `add_liquidity` — LP computed from net amount. Same for `create_pool` — initial LP computed from net tokens received.
+
+## TWAP Oracle
+
+DeepPool maintains a **keeperless** time-weighted price oracle. In a constant-product AMM the marginal price changes *only* on a swap, so an accumulator advanced on the swap itself never misses a move — there is nothing to sample between swaps, and no crank/keeper is needed. Full threat model: [twap-oracle.md](./twap-oracle.md).
+
+**State (on `Pool`).** A live cumulative head — `cum_sol_per_tok`, `cum_tok_per_sol` (Q64.64 price integrals, both directions) and `last_cum_slot` — plus a 16-slot ring of periodic snapshots (`observations: [Observation; 16]`, `obs_head`). `Observation = { slot, cum_sol_per_tok, cum_tok_per_sol }`. `Pool::LEN` grows 153 → 835 bytes; `Pool` is `Box`ed in all four contexts so the larger `try_accounts` frame fits the 4096-byte BPF stack.
+
+**Update (every swap).** At the top of `swap::handler`, from the **pre-swap** reserves:
+- `cum += price_q64(reserve_out, reserve_in) × Δslot` per direction, **wrapping** (mod 2^128, Uniswap-style; consumers difference with `wrapping_sub`, exact while the window sum < 2^128). `price_q64(out, in) = (out << 64) / in` (Q64.64; the `u64 << 64` maxes at `2^128 − 2^64`, fits u128).
+- A ring snapshot is written only when ≥ `MIN_OBS_SPACING_SLOTS` since the last — the head captures *every* swap, the ring spans `~RING × spacing` slots = the **max queryable lookback**, frequency-independent.
+- Dust gate: if `sol_reserve < MIN_SPOT_RESERVE`, advance the clock but don't accumulate — a thin pool's price isn't trustworthy.
+- `add_liquidity` / `remove_liquidity` do **not** record: they move reserves proportionally (price-neutral), so the read's lazy extension reconstructs the unchanged price.
+
+**Read.** `Pool::read_twap_sol_per_tok(sol_reserve_now, token_reserve_now, now, lookback_slots) -> Option<u128>` — a pure method returning the Q64.64 time-weighted SOL-per-token price over the **caller-chosen** window. It lazily extends the head to `now` with the current reserves (price constant since the last swap), anchors at the newest observation ≥ `lookback` old, `wrapping_sub`s, and divides by elapsed slots. `None` if the ring lacks that much history → fail-closed warmup. **Window length is policy and belongs to the consumer**; the ring/spacing are just storage + max lookback. Both directions are stored; only the SOL-per-token reader is exposed (YAGNI).
+
+**Design choices.** *Price cumulative, not reserve-ratio* — the canonical AMM oracle (Uniswap `price0`/`price1`) is what an arbitrary integrator expects; the ratio-of-time-weighted-reserves form is valid but non-standard. *No ratchet* — an earlier per-observation deviation clamp was dropped: a clamp makes the cumulative unfaithful (lossy for every consumer, can't be undone), is redundant with the window, and over-smooths a genuine fast decline → bad debt. The window is the resistance; the consumer's `lookback` is the dial. The SDK ships a faithful TS mirror (`readTwapSolPerTok`) so off-chain consumers compute the mark without re-deriving the wrapping math.
 
 ## Integration with Torch
 
@@ -247,6 +269,9 @@ Torch's `swap_fees_to_sol` CPIs into DeepPool `swap` (sell-only) to convert harv
 
 ### Depth model
 Torch's risk engine reads `pool_pda.lamports() - rent` for the live SOL reserve. Used for margin gating on shorts and loans.
+
+### Liquidation mark (TWAP)
+Torch's liquidations price collateral/debt against DeepPool's TWAP, not raw spot, so a single-block price crush can't manufacture a liquidation. Torch deserializes the `Pool`, computes the current reserves from the address-bound `deep_pool` + `deep_pool_token_vault` accounts, and calls `Pool::read_twap_sol_per_tok(.., LIQ_TWAP_LOOKBACK_SLOTS)` with a torch-side window constant. Torch owns the window length and enforces its own min-liquidity gate (`PoolTooThin`) per the oracle consumer contract (audit I-8). This replaces torch's former in-`Treasury` observation ring + `record_observation` keeper crank.
 
 ## File Structure
 

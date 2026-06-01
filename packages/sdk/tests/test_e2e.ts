@@ -27,6 +27,8 @@ import {
 import {
   getPool,
   getSwapQuote,
+  getTwapSolPerTok,
+  q64ToFloat,
   buildCreatePoolTransaction,
   buildSwapTransaction,
   buildAddLiquidityTransaction,
@@ -480,6 +482,27 @@ const main = async () => {
 
   if (k_growth_count === 10) {
     ok('k growth 10/10 swaps', `K grew every swap`)
+  }
+
+  // ------------------------------------------------------------------
+  // 8b. TWAP oracle — SDK read path against the live program
+  // ------------------------------------------------------------------
+  // The oracle records on every swap above. The mark stays null until the window
+  // spans MIN_OBS_SPACING_SLOTS (~500 slots) — too long for an e2e — so this
+  // asserts the full read path: fetch → decode the new oracle layout → compute →
+  // warmup gate. A layout/IDL mismatch vs the deployed program would throw here.
+  log('\n[8b] TWAP oracle read')
+  try {
+    const [twapPool] = getPoolPda(wallet.publicKey, mint)
+    // lookback = full ring span (16 × 500 ≈ 53 min) — the consumer picks its window.
+    const mark = await getTwapSolPerTok(connection, twapPool, 8000n)
+    if (mark === null) {
+      ok('twap read', 'warmup → null (read path OK, fail-closed)')
+    } else {
+      ok('twap read', `mark ≈ ${q64ToFloat(mark).toFixed(12)} sol/base-unit`)
+    }
+  } catch (e) {
+    fail('twap read', e)
   }
 
   // ------------------------------------------------------------------

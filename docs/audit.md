@@ -1,8 +1,8 @@
 # DeepPool Security Audit
 
-**Date:** May 25, 2026
-**Auditor:** Claude Opus 4.7 (Anthropic) + independent review by Qwen3.6-35B (local)
-**Version:** 5.0.0
+**Date:** June 1, 2026 (v6.0.0 oracle pass) · May 25, 2026 (v5.0.0)
+**Auditor:** Claude Opus 4.8 (Anthropic), red-team review of the v6.0.0 in-pool TWAP oracle · prior passes Opus 4.7 + Qwen3.6-35B (local)
+**Version:** 6.0.0
 **Framework:** Anchor 0.32.1 / Solana 3.0
 **Program ID:** `CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT`
 **Deployment:** Devnet + Mainnet
@@ -14,10 +14,10 @@
 | Component | Files | Description |
 |-----------|-------|-------------|
 | Program | 8 source files | Constant-product AMM with signer-verified namespaces, fee compounding, and LP locks |
-| Kani proofs | 21 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None` |
-| Proptests | 24 properties | Fuzz-verified math properties across 10,000 random cases each (see [properties.md](./properties.md)) |
-| Litesvm integration | 20 tests | End-to-end exercises of all 4 instructions, including Token-2022 fee handling, extension blocklist rejection, H1/M1 regression guards, and a CU bench |
-| SDK | 1 source file | Transaction builders, quote engine, PDA derivation |
+| Kani proofs | 24 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None`, **+ TWAP `price_q64` / `accumulate_price` (incl. past-2^128 wrap exactness)** |
+| Proptests | 28 properties | Fuzz-verified math properties across 10,000 random cases each, **+ 4 TWAP** (`price_q64` none-iff-zero-denom / monotonic, `accumulate_price` wrapping-difference exact) (see [properties.md](./properties.md)) |
+| Litesvm integration | 22 tests | End-to-end exercises of all 4 instructions, Token-2022 fee handling, extension blocklist rejection, H1/M1 regression guards, a CU bench, **+ 2 TWAP** (warmup fail-closed, keeperless price tracking) |
+| SDK | 2 source files + tests | Transaction builders, quote engine, PDA derivation, **+ `twap.ts` read helper** (faithful wrapping mirror) with its own no-network unit test |
 
 ---
 
@@ -29,9 +29,9 @@
 | High | 0 | — |
 | Medium | 0 | — |
 | Low | 0 | — |
-| Informational | 7 | See below |
+| Informational | 11 | See below (I-8–I-11 are the v6.0.0 oracle's **consumer contract**) |
 
-**Rating: CLEAN — No vulnerabilities found**
+**Rating: CLEAN — No vulnerabilities found.** The v6.0.0 oracle adds no critical/high/medium/low findings. Its risk surface is a *consumer contract* (I-8–I-11): the primitive is sound, but an integrator that reads the mark without its own liquidity floor (I-8) or with un-validated reserves (I-9a) can be misled. torch satisfies the contract.
 
 ---
 
@@ -162,6 +162,18 @@ Range reflects litesvm keypair randomization across runs. Even at the upper boun
 
 **Net behavioral changes.** Swap ix account list shrunk by one (no more `associated_token_program`); callers must pre-create user ATA (idempotent SPL helper); explicit Token-2022 program identity check on every ix; mints with rugpull/DoS extensions rejected at pool creation; rent-exempt floor explicitly asserted at the lamport mutation site. **No new attack surface.** SDK + IDL regenerated.
 
+### v6.0.0 — In-pool TWAP oracle
+
+DeepPool now maintains a **keeperless** time-weighted price oracle, advanced on every swap. Rationale: in a constant-product AMM the marginal price changes *only* on a swap, so an accumulator advanced on the swap itself never misses a move — there is nothing to sample between swaps and no crank/keeper is required. Consumers (torch_market liquidations) read a manipulation-resistant mark instead of raw spot. Full design + threat model: [twap-oracle.md](./twap-oracle.md).
+
+**State.** `Pool` gains a live cumulative head (`cum_sol_per_tok`, `cum_tok_per_sol`, `last_cum_slot`) plus a 16-slot ring of periodic snapshots (`observations`, `obs_head`). `Pool::LEN` grows **153 → 835** bytes; `Pool` is now `Box`ed in **all four** contexts (three already were; `swap` added) so the larger `try_accounts` frame stays under the 4096-byte BPF stack limit. **Layout change — existing pools are incompatible and must be recreated (pre-mainnet for this feature).**
+
+**Accumulation.** `Σ price_q64 × Δslot` per direction, Q64.64 fixed-point, **wrapping** (mod 2^128, Uniswap-style — a consumer recovers a window with `wrapping_sub`, exact while the window's true accumulation < 2^128). Recorded at the top of `swap::handler` from the **pre-swap** reserves — the real price that held over the interval just ended. **There is no path to inject a fabricated price:** the recorded value is derived from the live vault balance and the pool's lamports, both pinned by the address-bound accounts. `add_liquidity` / `remove_liquidity` deliberately do **not** record observations — they move both reserves proportionally (price-neutral), so the read's lazy head-extension reconstructs the unchanged price correctly.
+
+**Read.** `Pool::read_twap_sol_per_tok(sol_reserve_now, token_reserve_now, now, lookback_slots) -> Option<u128>` — a pure, read-only method (no mutation, no CPI, no authority). **The caller picks the window;** the realized window is ≥ `lookback` (≤ `lookback + spacing`); `None` if the ring lacks that much history (fail-closed warmup). Window length is *policy* and lives with the consumer; the ring/spacing are storage + max lookback only.
+
+**Security posture.** No new instruction, no new account in any existing context, no new error code (record surfaces overflow as `MathOverflow`; read returns `Option`). The oracle is **write-only by the validated swap path, read-only by everyone else**. Manipulation resistance is the standard TWAP property — moving the mark requires holding an off-price across the window, bleeding to arbitrage every block — reinforced by a dust-pool floor (`MIN_SPOT_RESERVE` = 5 SOL) below which observations are skipped. The four new informational findings **I-8–I-11 are the oracle's consumer contract** — the conditions an integrator must respect to read the mark safely. 3 new Kani proofs + 4 proptests + 2 litesvm tests; the SDK ships a faithful TS read helper (`readTwapSolPerTok`) with the wrapping arithmetic handled correctly + a no-network unit test. **No new attack surface on the pool itself; the residual risk is integration-side and documented.**
+
 ---
 
 ## Architecture
@@ -234,6 +246,10 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 13. **Explicit rent-exempt assertion at mutation site** — swap sell path asserts `lamports - sol_out >= rent_minimum_balance(Pool::LEN)` before `sub_lamports` (v5.0.0)
 14. **Native SOL** — no WSOL wrapping/unwrapping complexity
 15. **Checked arithmetic** — all math uses `checked_mul` / `checked_div` with u128 intermediaries
+16. **Keeperless TWAP oracle** — advanced on every swap; in a CPMM price moves only on swaps, so the accumulator never misses a move and needs no crank (v6.0.0)
+17. **Oracle prices are authentic** — observations integrate the **pre-swap** reserves (live vault balance + pool lamports, both address-bound); no caller can inject a fabricated price (v6.0.0)
+18. **Oracle is read-only off the swap path** — `read_twap_sol_per_tok` is a pure method (no mutation/CPI/authority); the only writer is the validated swap handler (v6.0.0)
+19. **Manipulation resistance = window length** — moving the mark requires holding an off-price across the consumer's `lookback`, bleeding to arbitrage; reinforced by the `MIN_SPOT_RESERVE` dust gate and fail-closed warmup (v6.0.0)
 
 ---
 
@@ -298,6 +314,41 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 
 ---
 
+## Oracle Consumer Contract (v6.0.0)
+
+> The in-pool TWAP oracle is a sound primitive, but it is a *primitive* — it ships
+> with a use contract. I-8–I-11 below are the conditions an integrator must respect.
+> Violating them is where money risk lives; the pool itself is not at risk. torch
+> satisfies all four.
+
+### I-8: Oracle freshness is not guaranteed below `MIN_SPOT_RESERVE` — consumer must floor liquidity
+
+**Description:** `record_observation` skips accumulation when `sol_reserve < MIN_SPOT_RESERVE` (5 SOL) — it advances `last_cum_slot` but does not integrate the price, deliberately keeping manipulable thin-pool prices out of the cumulative. Consequence: a pool that has spent time below the floor has a *stale* head, and a read during that period lazily extends the head with the current (thin) spot over the gap.
+
+**Analysis:** This fails *closed* in the dangerous direction for a liquidation oracle. To push a pool's SOL below 5, an attacker must drain it via sells (quadratic slippage) — and once below the floor the crashed price is not recorded, so the mark does not move down → no spurious liquidation manufactured. The reverse (a thin pool's stale-high mark) is bounded by the window and the lazy-extension caveat (I-9).
+
+**Consumer requirement (load-bearing):** integrators MUST enforce their own minimum-liquidity gate before trusting the mark — the oracle does not promise freshness on a pool that has been below `MIN_SPOT_RESERVE`. torch enforces `MIN_POOL_SOL_LENDING` / `PoolTooThin` for exactly this.
+
+**Recommendation:** the floor gates `sol_reserve` only, not `token_reserve`. A pool with healthy SOL but a token side drained near-empty produces an extreme, easily-skewed price that *is* recorded. Draining tokens is quadratically expensive (not a cheap manipulation), but gating on *both* reserves would close it cleanly and also bound I-10. Low-priority defense-in-depth. **Impact:** Informational.
+
+### I-9: Lazy head-extension trusts the caller's reserves and the most-recent interval
+
+**(a) Caller-supplied reserves.** `read_twap_sol_per_tok` extends the head to `now` using the caller-supplied `sol_reserve_now` / `token_reserve_now`. It is a pure function; it trusts what it's handed. A consumer MUST read those from the real, address-validated pool + vault accounts — a consumer that passes attacker-influenced reserves only fools itself, but it *would* mis-price. torch derives them from the `deep_pool` + `deep_pool_token_vault` accounts pinned by `address =` constraints in its liquidation contexts, so the values are authentic.
+
+**(b) Recent-interval bias.** A reserve change that is *not* a swap — a direct SOL donation (I-4) — moves the price without recording an observation. A read shortly after extends the head with the post-donation price over the whole gap `[last_cum_slot, now]`, biasing the lazy-extension portion of the mark. The bias is bounded by `gap / window`, diluted by a longer `lookback`, and costs the attacker real, unrecoverable SOL (donations are captured by LPs). The historical portion of the window is unaffected. This is the standard "the most-recent observation is the manipulable one" property of every AMM TWAP; the window is the mitigation and the consumer's `lookback` is the dial. **Impact:** Informational.
+
+### I-10: Windowed cumulative can overflow 2^128 only at non-reachable reserve ratios
+
+**Description:** The mark is `wrapping_sub(cum_now, anchor.cum) / dt`, exact while the window's true accumulation stays < 2^128. `price_q64 = (sol_reserve << 64) / token_reserve`; for a pathological ratio (`sol_reserve` near `u64::MAX`, `token_reserve == 1`) the per-slot price approaches 2^128, and over a multi-slot window the cumulative wraps more than once → `wrapping_sub` returns a garbage mark.
+
+**Analysis:** Not practically reachable. With the `MIN_SPOT_RESERVE` floor (≥ 5 SOL ≈ 2^32 lamports) and any realistic token reserve, the per-slot price is ≤ ~2^96 and the max ~8.5k-slot window cumulative ≤ ~2^110 — three orders of binary magnitude below the wrap. Reaching it needs `sol_reserve` in the 10^9-SOL range (more than exists) with `token_reserve == 1`. The single-wrap exactness *is* Kani-proven (`verify_accumulate_price_wraps_exactly`); the edge is "more than one wrap within one window." **Recommendation:** the I-8 `token_reserve` floor removes the edge entirely. **Impact:** Informational.
+
+### I-11: `read_twap_sol_per_tok` is a public, read-only method — no privileged surface
+
+**Description:** The read method is `pub` and callable by anyone deserializing a `Pool`. No mutation, no CPI, no authority check. Correct by construction — there is nothing to protect; a caller can only compute a price for itself and cannot affect pool state or another caller. The single trust assumption (authentic reserves) is I-9(a). **Impact:** Informational — documents the trust boundary for integrators.
+
+---
+
 ## Attack Surface
 
 | Vector | Defense | Status |
@@ -327,6 +378,14 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 | Admin exploit | No admin exists | N/A |
 | Pool PDA LP redemption | PDA can't sign as provider | MITIGATED |
 | Fee evasion via trade splitting | Tx fees dominate; not economic | MITIGATED |
+| TWAP fake-observation injection | Observations use **pre-swap reserves** (live vault + lamports, address-bound); no caller-supplied price | N/A |
+| TWAP single-swap mark manipulation | Window dilution — must hold the off-price across the lookback, bleeding to arb | BY DESIGN |
+| TWAP spurious liquidation via SOL drain | Draining SOL below `MIN_SPOT_RESERVE` freezes accumulation (skip gate) → crashed price not recorded → mark stays high | MITIGATED (fail-closed) |
+| TWAP staleness on thin pool | Consumer enforces own liquidity floor (I-8); torch: `PoolTooThin` | CONSUMER CONTRACT |
+| TWAP recent-interval / donation bias | Window-bounded, dilutable via `lookback`, donor SOL is forfeit to LPs (I-9b) | BY DESIGN |
+| TWAP cumulative 2^128 overflow | Unreachable at realistic reserves; single-wrap exactness Kani-proven (I-10) | N/A (realistic) |
+| TWAP read tampering | `read_twap_sol_per_tok` is pure/read-only — caller can only fool itself (I-11) | N/A |
+| Oracle keeper outage / staleness | None — advanced on every swap; AMM price only moves on swaps | N/A (keeperless) |
 
 ---
 
@@ -334,9 +393,9 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 
 Two complementary layers, both passing:
 
-**Kani (exhaustive model checking)** — 21 proof harnesses covering swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, and overflow-returns-`None` across the LP-math family. See [verification.md](./verification.md).
+**Kani (exhaustive model checking)** — 24 proof harnesses covering swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None` across the LP-math family, and the **TWAP oracle math** (`price_q64` exactness + none-on-zero-denom; `accumulate_price` window-difference exactness, including a deliberate past-2^128 wrap). See [verification.md](./verification.md).
 
-**Proptest (fuzz-style property testing)** — 24 properties × 10,000 cases per property (5,000 for the composite swap-roundtrip) covering the full u64 input range. Complements Kani's concrete exactness with broad random coverage including roundtrip no-extraction under multi-step compositions. See [properties.md](./properties.md).
+**Proptest (fuzz-style property testing)** — 28 properties × 10,000 cases per property (5,000 for the composite swap-roundtrip) covering the full u64 input range, **including 4 TWAP properties** (`price_q64` none-iff-zero-denom + numerator-monotonic; `accumulate_price` single-step and sequence wrapping-difference exactness). Complements Kani's concrete exactness with broad random coverage. See [properties.md](./properties.md).
 
 Key proven / property-tested invariants:
 - Fee conservation (no leakage)
@@ -348,19 +407,22 @@ Key proven / property-tested invariants:
 - LP mint / redeem roundtrip extracts nothing
 - LP lock rates: exactly 20% creator / 7.5% provider, conservation holds
 - Swap roundtrip (buy then sell) extracts nothing
+- **TWAP `price_q64` is exact and `None` iff the denominator is zero**
+- **TWAP `accumulate_price` window difference is exact mod 2^128 (the property the mark relies on), proven correct across a deliberate wrap**
 
 ---
 
 ## Conclusion
 
-DeepPool v5.0.0 stacks five protocol-level defenses on top of the v1.0.8 baseline:
+DeepPool v6.0.0 stacks six protocol-level changes on top of the v1.0.8 baseline:
 
 1. **Pool squatting** is cryptographically blocked by signer-verified namespaces (v2.0).
 2. **CPI deposit trust** is eliminated by the unified `System.transfer` path (v3.0) and preserved composability via `sol_source` (v3.1).
 3. **Event observability** lands via `emit_cpi!` (v4.0) — every state-changing instruction emits a typed payload through inner instructions, with `(signature, inner_ix_idx)` as a stable idempotency key for downstream indexers.
 4. **Math hygiene + Token-2022 transfer-fee parity** (v4.2) — LP-math overflow returns `MathOverflow`; deposits priced fairly under transfer-fee mints.
 5. **Jupiter-readiness hardening** (v5.0) — Token-2022 extension blocklist closes I-5; explicit `token_program` constraint and rent-exempt assertion strengthen defense-in-depth; swap account list slimmed for industry-standard ATA handling; CU profile measured at ~21-26k hot path, ~40% below Raydium CPMM.
+6. **In-pool keeperless TWAP oracle** (v6.0) — a manipulation-resistant, consumer-windowed price mark advanced on every swap, with no keeper. Observations integrate the real pre-swap reserves (no injectable price), resistance comes from the consumer's lookback window, and the read path is pure/read-only with fail-closed warmup. The oracle adds **no critical/high/medium/low finding**; its residual risk is an integration-side *consumer contract* (I-8–I-11) — enforce your own liquidity floor and pass authentic reserves — which torch satisfies.
 
 The LP lock ratchet (20% creator / 7.5% provider, compounding) enforces a permanent reserve floor proportional to deposit history — the pool can never be drained past that ratio without an `add_liquidity` call that immediately widens the ratio.
 
-Combined with 0.25% fee compounding, no freeze authority on LP tokens, no admin or close instruction, and a blocklist that refuses mints carrying rugpull / DoS extensions, the protocol is minimal, verifiable, permanently deep, and safe to route through. No vulnerabilities found at any severity level.
+Combined with 0.25% fee compounding, no freeze authority on LP tokens, no admin or close instruction, a blocklist that refuses mints carrying rugpull / DoS extensions, and a keeperless oracle whose worst case is "returns `None`," the protocol is minimal, verifiable, permanently deep, and safe to route through. No vulnerabilities found at any severity level; the v6.0.0 oracle's only sharp edges are documented as the consumer contract.

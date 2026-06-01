@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "5.0.0",
+    "version": "6.0.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -1327,6 +1327,26 @@
       }
     },
     {
+      "name": "Observation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "cum_sol_per_tok",
+            "type": "u128"
+          },
+          {
+            "name": "cum_tok_per_sol",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "Pool",
       "type": {
         "kind": "struct",
@@ -1358,6 +1378,35 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "cum_sol_per_tok",
+            "type": "u128"
+          },
+          {
+            "name": "cum_tok_per_sol",
+            "type": "u128"
+          },
+          {
+            "name": "last_cum_slot",
+            "type": "u64"
+          },
+          {
+            "name": "observations",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Observation"
+                  }
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "obs_head",
+            "type": "u16"
           }
         ]
       }

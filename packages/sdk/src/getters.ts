@@ -1,10 +1,6 @@
 import { BorshCoder, Idl } from '@coral-xyz/anchor'
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
-import {
-  getTransferFeeConfig,
-  TOKEN_2022_PROGRAM_ID,
-  unpackMint,
-} from '@solana/spl-token'
+import { getTransferFeeConfig, TOKEN_2022_PROGRAM_ID, unpackMint } from '@solana/spl-token'
 import idl from './deep_pool.json'
 import { FEE_DENOMINATOR, POOL_ACCOUNT_SIZE, PROGRAM_ID, SWAP_FEE_BPS } from './constants'
 import { PoolState, SwapQuote } from './types'
