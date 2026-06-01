@@ -9,9 +9,10 @@ export const LP_MINT_SEED = Buffer.from('pool_lp_mint')
 export const EVENT_AUTHORITY_SEED = Buffer.from('__event_authority')
 export const SWAP_FEE_BPS = 25
 export const FEE_DENOMINATOR = 10000
-// Spot-reserve floor (mirrors deep_pool MIN_SPOT_RESERVE = 5 SOL). Below this the
-// pool's live price is untrustworthy; the TWAP read fails closed (returns null),
-// matching the on-chain write+read gate.
+// Spot-reserve floor (mirrors deep_pool MIN_SPOT_RESERVE = 5 SOL): the depth below
+// which the WRITE path skips accumulation. The read does NOT gate on it (it tracks
+// the held price so a thin/crashed pool stays liquidatable) — exposed here as the
+// reference floor an integrator can apply in its OWN read policy (see audit I-8).
 export const MIN_SPOT_RESERVE = 5_000_000_000n
 // Pool::LEN from programs/deep_pool/src/state.rs.
 // 8 disc + 32×4 pubkeys (config, token_mint, token_vault, lp_mint)

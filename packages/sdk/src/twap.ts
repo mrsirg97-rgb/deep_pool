@@ -6,7 +6,6 @@
 import { BorshCoder, Idl } from '@coral-xyz/anchor'
 import { Connection, PublicKey } from '@solana/web3.js'
 import idl from './deep_pool.json'
-import { MIN_SPOT_RESERVE } from './constants'
 
 const MASK_128 = (1n << 128n) - 1n
 const Q64 = 1n << 64n
@@ -59,9 +58,6 @@ export function readTwapSolPerTok(
   lookbackSlots: bigint,
 ): bigint | null {
   if (tokenReserveNow === 0n) return null
-  // Sub-floor pool → live price untrustworthy; fail closed (mirrors the on-chain
-  // MIN_SPOT_RESERVE read gate).
-  if (solReserveNow < MIN_SPOT_RESERVE) return null
   const priceNow = (solReserveNow << 64n) / tokenReserveNow // price_q64
   const gap = nowSlot > state.lastCumSlot ? nowSlot - state.lastCumSlot : 0n
   const cumNow = wrapAdd(state.cumSolPerTok, wrapMul(priceNow, gap))
@@ -76,10 +72,7 @@ export function readTwapSolPerTok(
 
   const dt = nowSlot > start.slot ? nowSlot - start.slot : 0n
   if (dt === 0n) return null
-  // A degenerate 0 mark (true price < 2^-64) reads to consumers as "worthless" —
-  // fail closed, mirroring the on-chain Some(0) → None guard.
-  const twap = wrapSub(cumNow, start.cumSolPerTok) / dt
-  return twap === 0n ? null : twap
+  return wrapSub(cumNow, start.cumSolPerTok) / dt
 }
 
 // Q64.64 → float: price in **lamports per token base unit** (lossy; display

@@ -11,7 +11,7 @@ ring from `Treasury` to the layer that owns the price, and deletes torch's
 `record_observation` crank (the keeper).
 
 **Status:** deep_pool side implemented + green (25 kani, 7 proptests, 2 litesvm).
-torch consumption pending.
+torch consumption done (V21 closed-loop leverage — liquidations read this mark).
 
 ## Model
 
@@ -91,14 +91,14 @@ spacing`). `None` if the ring holds no observation that old — the pool is youn
 than the requested window → consumers fail closed. The reverse direction lives in
 `cum_tok_per_sol` if a caller needs it (no reader exposed yet — YAGNI).
 
-**[v7] Read-side fail-closed guards.** The read mirrors the write-side floor in two
-more cases, so a consumer never acts on an untrustworthy mark: (a) if the pool is
-*currently* below `MIN_SPOT_RESERVE`, the live spot is too thin to trust and is
-**not** extrapolated into the head — the read returns `None` (the write path already
-skips accumulation here, so this just makes the read consistent); (b) if the
-time-weighted result divides down to `0` (a degenerate sub-`2^-64` price), it returns
-`None` rather than a mark a consumer would read as "token worthless." The SDK's
-`readTwapSolPerTok` mirror applies the same two guards.
+**No read-side depth floor (by design).** The read deliberately extrapolates the
+*current* price over the gap even when the pool is sub-floor — a position underwater
+at a held crashed mark MUST stay liquidatable (bad debt can't sit stranded behind a
+depth gate; see torch's `liquidation_proceeds_when_pool_thin`). A read-side
+`MIN_SPOT_RESERVE` gate was considered in the v7 re-audit and **rejected** for this
+reason. The write-side gate (skip sub-floor accumulation) keeps the ring *history*
+clean; the read then extends from that clean history. Integrators that want a
+stricter policy apply their own liquidity floor (audit I-8).
 
 torch reads it from the `deep_pool` + `deep_pool_token_vault` accounts already in
 its liquidation contexts — no new CPI, no new accounts. **Note:** unlike the
@@ -111,27 +111,29 @@ torch's per-observation ratchet (`clamp_observation_sol`,
 `observation_out_of_band`, `MAX_PER_OBS_DEVIATION_BPS`) is removed. A true fixed
 window already dilutes a single out-of-band swap by its dwell-time in the window —
 the per-step clamp was compensating for coarse sampling that no longer exists.
-**⚠️ Diverges from `torch_sim.py` (freeze→ratchet is sim-authoritative).** Sim must
-be updated to match (drop the clamp) — flagged for the user, not assumed silently.
+`torch_sim.py` was updated to match in V21 (ratchet/clamp dropped; the sim mirrors
+the keeperless price-cumulative oracle), so sim and on-chain agree again.
 
 ## Math ownership
 
 - **In deep_pool (done):** `math::price_q64`, `math::accumulate_price`,
   `Pool::record_observation` / `read_twap_sol_per_tok` / `init_oracle`, the
   `Observation` type, the ring constants. Plus their kani proofs + proptests.
-- **Rewritten in torch (pending):** `twap_value_in_sol`, `twap_tokens_to_seize`
+- **Rewritten in torch (done, V21):** `twap_value_in_sol`, `twap_tokens_to_seize`
   now take the Q64.64 price: `value = amount × price >> 64`;
-  `tokens = (grossed_debt << 64) / price`. Their kani proofs update accordingly.
+  `tokens = (grossed_debt << 64) / price`. Their kani proofs updated accordingly.
 - **Delete entirely:** `observation_out_of_band`, `clamp_observation_sol`,
   `advance_cumulative` (torch's), `record_observation_into`, torch's
   `record_observation` crank + `RecordObservation` context/ix,
   `Treasury.twap_observations`/`twap_head`.
 
-## torch-side changes (pending)
+## torch-side changes (done in V21)
 
-1. Drop `twap_observations` + `twap_head` from `Treasury` (state.rs); shrink LEN.
-2. Delete `record_observation_into` + its 5 writers (opens/closes) and the crank.
-3. Rewrite `twap_value_in_sol`/`twap_tokens_to_seize` to the Q64.64 price + proofs.
+All shipped in the V21 closed-loop-leverage migration:
+
+1. Dropped `twap_observations` + `twap_head` from `Treasury` (state.rs); LEN shrank.
+2. Deleted `record_observation_into` + its 5 writers (opens/closes) and the crank.
+3. Rewrote `twap_value_in_sol`/`twap_tokens_to_seize` to the Q64.64 price + proofs.
 4. `read_twap_mark` in liquidate_long/short → deserialize the deep_pool `Pool` and
    call `Pool::read_twap_sol_per_tok(.., LIQ_TWAP_LOOKBACK_SLOTS)` (pool accounts
    already in those contexts); feed the returned price to the rewritten pricing
@@ -166,9 +168,10 @@ move price, only swaps update the oracle.
 - **deep_pool litesvm (done):** warmup → mark `None`; keeperless tracking — tiny
   swaps across warped slots advance the mark with no crank, `read_twap_sol_per_tok`
   lands within 1% of spot.
-- **torch (pending):** liquidations read the deep_pool mark; warmup → fail-closed;
-  the existing liquidate tests become tractable (no ratchet → poke price + a few
-  swaps across slots moves the mark past threshold).
+- **torch (done, V21):** liquidations read the deep_pool mark; warmup → fail-closed;
+  the liquidate tests are tractable (no ratchet → poke price + a few swaps across
+  slots moves the mark past threshold). `liquidation_proceeds_when_pool_thin` locks
+  the no-read-floor property: a held crashed price on a thin pool stays liquidatable.
 
 ## Build
 
