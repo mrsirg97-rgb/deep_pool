@@ -11,11 +11,17 @@
 
 use crate::constants::*;
 
-/// Swap fee on any input amount: `amount * SWAP_FEE_BPS / FEE_DENOMINATOR` (floor).
+/// Swap fee on any input amount: `amount * SWAP_FEE_BPS / FEE_DENOMINATOR`, floored
+/// but never below 1 unit for a nonzero swap. The min-1 closes the "free swap" dust
+/// window (any `amount < FEE_DENOMINATOR/SWAP_FEE_BPS` would otherwise floor to 0).
+/// For `amount ≥ 1`, `max(·, 1) ≤ amount`, so the caller's `effective_in = amount −
+/// fee` never underflows.
 pub fn calc_swap_fee(amount: u64) -> Option<u64> {
-    amount
-        .checked_mul(SWAP_FEE_BPS)?
-        .checked_div(FEE_DENOMINATOR)
+    if amount == 0 {
+        return Some(0);
+    }
+    let fee = amount.checked_mul(SWAP_FEE_BPS)?.checked_div(FEE_DENOMINATOR)?;
+    Some(fee.max(1))
 }
 
 /// Constant-product swap output: `effective_in * output_reserve / (input_reserve + effective_in)`.
@@ -57,6 +63,21 @@ pub fn calc_proportional(input: u64, reserve_a: u64, reserve_b: u64) -> Option<u
     let result = (input as u128)
         .checked_mul(reserve_b as u128)?
         .checked_div(reserve_a as u128)?;
+    u64::try_from(result).ok()
+}
+
+/// Like `calc_proportional` but rounds UP (ceiling). Used to charge the SOL side of
+/// a liquidity deposit so any sub-unit remainder is paid by the PROVIDER, never
+/// silently absorbed by the pool — AMM rounding must always favour the pool.
+/// `ceil(input * reserve_b / reserve_a)`; `reserve_a > 0` is guaranteed by the
+/// non-empty-pool gate. Returns `None` on overflow or u64 truncation.
+pub fn calc_proportional_ceil(input: u64, reserve_a: u64, reserve_b: u64) -> Option<u64> {
+    let numerator = (input as u128).checked_mul(reserve_b as u128)?;
+    let denom = reserve_a as u128;
+    // ceil(n / d) = (n + d - 1) / d  (denom ≥ 1, so d - 1 doesn't underflow).
+    let result = numerator
+        .checked_add(denom.checked_sub(1)?)?
+        .checked_div(denom)?;
     u64::try_from(result).ok()
 }
 

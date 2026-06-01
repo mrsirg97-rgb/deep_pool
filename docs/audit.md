@@ -1,8 +1,8 @@
 # DeepPool Security Audit
 
-**Date:** June 1, 2026 (v6.0.0 oracle pass) · May 25, 2026 (v5.0.0)
-**Auditor:** Claude Opus 4.8 (Anthropic), red-team review of the v6.0.0 in-pool TWAP oracle · prior passes Opus 4.7 + Qwen3.6-35B (local)
-**Version:** 6.0.0
+**Date:** June 1, 2026 (v7.0.0 fresh-eyes full re-audit + hardening · v6.0.0 oracle pass) · May 25, 2026 (v5.0.0)
+**Auditor:** Claude Opus 4.8 (Anthropic), fresh-eyes adversarial re-audit of the whole AMM (swap/custody, liquidity/LP, TWAP/constraints) + the v7 hardening · prior passes Opus 4.7 + Qwen3.6-35B (local)
+**Version:** 7.0.0
 **Framework:** Anchor 0.32.1 / Solana 3.0
 **Program ID:** `CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT`
 **Deployment:** Devnet + Mainnet
@@ -14,8 +14,8 @@
 | Component | Files | Description |
 |-----------|-------|-------------|
 | Program | 8 source files | Constant-product AMM with signer-verified namespaces, fee compounding, and LP locks |
-| Kani proofs | 24 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None`, **+ TWAP `price_q64` / `accumulate_price` (incl. past-2^128 wrap exactness)** |
-| Proptests | 28 properties | Fuzz-verified math properties across 10,000 random cases each, **+ 4 TWAP** (`price_q64` none-iff-zero-denom / monotonic, `accumulate_price` wrapping-difference exact) (see [properties.md](./properties.md)) |
+| Kani proofs | 25 harnesses | Swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional` (+ **[v7]** `calc_proportional_ceil` pool-favoring rounding), overflow-returns-`None`, TWAP `price_q64` / `accumulate_price` (incl. past-2^128 wrap exactness) |
+| Proptests | 31 properties | Fuzz-verified math properties across 10,000 random cases each, + 4 TWAP, **+ [v7] 3** (swap-fee min-1 dust window, `calc_proportional_ceil` remainder rounding ×2) (see [properties.md](./properties.md)) |
 | Litesvm integration | 22 tests | End-to-end exercises of all 4 instructions, Token-2022 fee handling, extension blocklist rejection, H1/M1 regression guards, a CU bench, **+ 2 TWAP** (warmup fail-closed, keeperless price tracking) |
 | SDK | 2 source files + tests | Transaction builders, quote engine, PDA derivation, **+ `twap.ts` read helper** (faithful wrapping mirror) with its own no-network unit test |
 
@@ -173,6 +173,17 @@ DeepPool now maintains a **keeperless** time-weighted price oracle, advanced on 
 **Read.** `Pool::read_twap_sol_per_tok(sol_reserve_now, token_reserve_now, now, lookback_slots) -> Option<u128>` — a pure, read-only method (no mutation, no CPI, no authority). **The caller picks the window;** the realized window is ≥ `lookback` (≤ `lookback + spacing`); `None` if the ring lacks that much history (fail-closed warmup). Window length is *policy* and lives with the consumer; the ring/spacing are storage + max lookback only.
 
 **Security posture.** No new instruction, no new account in any existing context, no new error code (record surfaces overflow as `MathOverflow`; read returns `Option`). The oracle is **write-only by the validated swap path, read-only by everyone else**. Manipulation resistance is the standard TWAP property — moving the mark requires holding an off-price across the window, bleeding to arbitrage every block — reinforced by a dust-pool floor (`MIN_SPOT_RESERVE` = 5 SOL) below which observations are skipped. The four new informational findings **I-8–I-11 are the oracle's consumer contract** — the conditions an integrator must respect to read the mark safely. 3 new Kani proofs + 4 proptests + 2 litesvm tests; the SDK ships a faithful TS read helper (`readTwapSolPerTok`) with the wrapping arithmetic handled correctly + a no-network unit test. **No new attack surface on the pool itself; the residual risk is integration-side and documented.**
+
+### v7.0.0 — Fresh-eyes full re-audit + four hardening fixes
+
+A fresh adversarial pass over the **whole** AMM (swap/custody, liquidity/LP, TWAP/constraints), motivated by torch's deeper integration. **No critical/high/medium findings.** The constant-product invariant (rounding always favours the pool), the donation-immune derived `sol_reserve` (the marginal SOL extractable from a non-refundable donation is provably < the donation), the direct-lamport sell (double rent-guarded, balanced, no `UnbalancedInstruction`), the first-deposit inflation surface (structurally closed — empty pools only seed via `create_pool`), and the TWAP's single-tx-manipulation resistance (a price-moving swap zeroes its own observation gap) all re-verified clean. Four LOW/informational hardening items were found **and fixed in v7**:
+
+1. **`create_pool` `sol_source` separation.** Added a `sol_source: Signer` distinct from `creator`, so a protocol integrator (torch migration) funds the pool's initial SOL from a program-controlled PDA — the bonded raise never transits a user wallet. Wallet callers pass `sol_source == creator`. *Closes a torch-side migration drain at the source* (see torch audit).
+2. **Swap-fee min-1 floor.** `calc_swap_fee` now charges ≥ 1 unit for any nonzero swap, closing the sub-`FEE_DENOMINATOR/SWAP_FEE_BPS` (< 400-unit) "free swap" dust window. `k` was already preserved at fee = 0, so this is dust-hardening, not an invariant fix.
+3. **`add_liquidity` SOL charge rounds UP.** The deposit's SOL side was floored (rounding toward the provider by < 1 lamport/add); now ceiled (`calc_proportional_ceil`) at both the slippage bound and the charge, so rounding always favours the pool. `max_sol_amount` bounds it for the provider.
+4. **TWAP read fails closed on a sub-floor pool or a degenerate `0` mark.** The read now mirrors the write-side `MIN_SPOT_RESERVE` gate (a currently-sub-floor pool returns `None` instead of extrapolating a manipulable spot) and converts a `Some(0)` mark to `None` (so a consumer never reads "token worthless"). Tightens the I-8/I-9 consumer contract on the primitive's own side.
+
+**Security posture.** No new instruction. `create_pool` gains one account (`sol_source`); all other contexts unchanged. No new error code. 1 new Kani proof (`verify_proportional_ceil_rounds_up`) + `verify_swap_fee_threshold` updated to min-1; 3 new proptests; SDK + IDL regenerated (the `twap.ts` mirror got the two read guards). Still **CLEAN** — every v7 item is defensive.
 
 ---
 
@@ -393,7 +404,7 @@ Every account is either PDA-derived, ATA-derived, or signer-verified:
 
 Two complementary layers, both passing:
 
-**Kani (exhaustive model checking)** — 24 proof harnesses covering swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None` across the LP-math family, and the **TWAP oracle math** (`price_q64` exactness + none-on-zero-denom; `accumulate_price` window-difference exactness, including a deliberate past-2^128 wrap). See [verification.md](./verification.md).
+**Kani (exhaustive model checking)** — 25 proof harnesses covering swap math, LP math, fee conservation, K invariant, LP lock rates, `calc_proportional`, overflow-returns-`None` across the LP-math family, and the **TWAP oracle math** (`price_q64` exactness + none-on-zero-denom; `accumulate_price` window-difference exactness, including a deliberate past-2^128 wrap). See [verification.md](./verification.md).
 
 **Proptest (fuzz-style property testing)** — 28 properties × 10,000 cases per property (5,000 for the composite swap-roundtrip) covering the full u64 input range, **including 4 TWAP properties** (`price_q64` none-iff-zero-denom + numerator-monotonic; `accumulate_price` single-step and sequence wrapping-difference exactness). Complements Kani's concrete exactness with broad random coverage. See [properties.md](./properties.md).
 

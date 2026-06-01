@@ -159,7 +159,7 @@ Outside a browser (SSR, Node tests) `createIndexerBus` returns a no-op bus.
 - **Native SOL** — SOL reserve is pool PDA lamports, not a token account.
 - **Immutable pools** — no admin, no fee switch, no close.
 - **No protocol fee** — 0% extraction. All fees stay in the pool.
-- **Formally verified** — 21 Kani proofs + 24 proptest properties cover swap math, LP math, K invariant, LP locks, and overflow handling.
+- **Formally verified** — 25 Kani proofs + 31 proptest properties cover swap math, LP math, K invariant, LP locks, and overflow handling.
 
 ## Constants
 
@@ -173,7 +173,7 @@ Outside a browser (SSR, Node tests) `createIndexerBus` returns a no-op bus.
 | Min initial tokens | 1 token (6 decimals) |
 | MIN_LIQUIDITY | 1000 (locked on first deposit) |
 | LP decimals | 6 |
-| `POOL_ACCOUNT_SIZE` | 153 bytes |
+| `POOL_ACCOUNT_SIZE` | 835 bytes |
 
 Re-exports: `LAMPORTS_PER_SOL`, `TOKEN_2022_PROGRAM_ID`, `PROGRAM_ID`, `SWAP_FEE_BPS`, `FEE_DENOMINATOR`, `POOL_ACCOUNT_SIZE`.
 

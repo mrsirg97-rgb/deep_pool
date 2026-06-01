@@ -7,8 +7,8 @@ DeepPool's core arithmetic is property-tested using [proptest](https://proptest-
 Proptest complements the Kani harnesses ([verification.md](./verification.md)): Kani proves exact correctness at concrete values, proptest explores the full u64 input space with thousands of randomly-drawn cases and automatically shrinks any failing input down to the minimal reproducing case.
 
 **Tool:** proptest 1.x
-**Target:** `deep_pool` v5.0.0
-**Properties:** 24 properties across 7 modules, all passing
+**Target:** `deep_pool` v7.0.0
+**Properties:** 31 properties across 8 modules, all passing
 **Cases per property:** 10,000 (5,000 for the composite roundtrip)
 **Total assertions per run:** ~230,000
 **Source:** `programs/deep_pool/tests/math_proptests.rs`
@@ -19,16 +19,19 @@ Proptest complements the Kani harnesses ([verification.md](./verification.md)): 
 > **v4.2.0 note.** Added a new `calc_proportional` module with 4 properties: zero-input identity, full-input maps to full-opposite reserve, monotonicity in input, and algebraic equivalence with `calc_lp_redeem` (guards against drift if either function is refactored). Plus an explicit overflow-returns-`None` property that exercises the new `u64::try_from` hardening across the LP-math family.
 >
 > **v5.0.0 note.** Jupiter-readiness hardening pass — Token-2022 extension blocklist, explicit `token_program` constraint, explicit rent-exempt assertion at the swap-sell lamport site, and account-list cleanup. Pure-math surface is unchanged; all 24 properties continue to pass against the v5.0.0 binary.
+>
+> **v7.0.0 note.** Added 3 properties for the v7 math hardening: `swap_fee_min_one_for_nonzero` (focused on the dust window the broad `any::<u64>()` sweep almost never samples — every nonzero swap pays ≥ 1 unit) and a new `calc_proportional_ceil` module with 2 (`proportional_ceil_rounds_up` — fuzzes the remainder logic to confirm `ceil ∈ {floor, floor+1}`, the division-equivalence Kani can't do symbolically — and `proportional_ceil_zero_input_is_zero`). `swap_fee_never_panics_and_is_bounded` was updated to the min-1 formula. Total: 31 across 8 modules.
 
 Located under `tests/` rather than `src/` so the `proptest!` macro DSL isn't parsed by Anchor's `#[program]` safety-check macro, which walks the lib source tree with syn and doesn't understand macro semantics.
 
 ## What Is Verified
 
-### Swap Fee (Properties 1-3)
+### Swap Fee (Properties 1-4)
 
 | Property | Cases | Description |
 |----------|-------|-------------|
-| `swap_fee_never_panics_and_is_bounded` | 10,000 | For all u64 inputs, `calc_swap_fee` either returns `None` or a value `≤ input` and exactly equal to `input * 25 / 10000` (u128 intermediate) |
+| `swap_fee_never_panics_and_is_bounded` | 10,000 | For all u64 inputs, `calc_swap_fee` returns `None` or a value `≤ input` equal to `max(input * 25 / 10000, 1)` for a nonzero input (`0` only at input `0`) — the min-1 dust floor |
+| `swap_fee_min_one_for_nonzero` | 10,000 | Focused on `0..2000` (the window the broad u64 sweep misses): every nonzero swap pays ≥ 1 unit, and the fee never exceeds the swap |
 | `swap_fee_monotonic` | 10,000 | `fee(a) ≤ fee(b)` whenever `a ≤ b`, across all pairs |
 | `swap_fee_conservation` | 10,000 | `fee(x) + (x - fee(x)) == x` for all valid inputs |
 

@@ -32,22 +32,24 @@ fn verify_swap_fee_conservation() {
 
         // Conservation: fee + effective = input
         assert!(fee + effective == amount);
-        // Fee bounded
+        // Fee bounded (min-1 never exceeds a ≥1 amount)
         assert!(fee <= amount);
-        // Exact formula
-        assert!(fee == amount * SWAP_FEE_BPS / FEE_DENOMINATOR);
+        // Exact formula: floored rate, but never below 1 for a nonzero swap.
+        assert!(fee == (amount * SWAP_FEE_BPS / FEE_DENOMINATOR).max(1));
     }
 }
 
 #[cfg(kani)]
 #[kani::proof]
 fn verify_swap_fee_threshold() {
-    // Below threshold: fee = 0
-    assert!(calc_swap_fee(399).unwrap() == 0);
-    // At threshold: fee = 1
-    assert!(calc_swap_fee(400).unwrap() == 1);
-    // Above: fee > 0
-    assert!(calc_swap_fee(10_000).unwrap() > 0);
+    // Zero swap: no fee.
+    assert!(calc_swap_fee(0).unwrap() == 0);
+    // Any nonzero swap pays ≥ 1 unit — the min-1 closes the free-swap dust window.
+    assert!(calc_swap_fee(1).unwrap() == 1);
+    assert!(calc_swap_fee(399).unwrap() == 1); // rate floors to 0 → min-1 applies
+    // At/above the rate-1 threshold the proportional fee takes over.
+    assert!(calc_swap_fee(400).unwrap() == 1); // 400·25/10000 = 1 exactly
+    assert!(calc_swap_fee(10_000).unwrap() == 25);
     // 1 SOL: fee = 2_500_000 (0.25% of 10^9)
     assert!(calc_swap_fee(1_000_000_000).unwrap() == 2_500_000);
 }
@@ -430,6 +432,30 @@ fn verify_proportional_overflow_returns_none() {
     // Same shape just past the u64 boundary.
     let half = u64::MAX / 2 + 1;
     assert!(calc_proportional(half, 1, 3) == None);
+}
+
+#[cfg(kani)]
+#[kani::proof]
+fn verify_proportional_ceil_rounds_up() {
+    // calc_proportional_ceil charges the SOL side of a deposit so any remainder is
+    // paid by the provider, never the pool: ceil ∈ {floor, floor+1}. Concrete triples
+    // (symbolic u128 division blows up CBMC — see the sibling proportional proofs and
+    // the division-blowup note), chosen to cover exact-divide AND remainder cases.
+    // (input, reserve_a, reserve_b, expected_floor, expected_ceil)
+    let cases: [(u64, u64, u64, u64, u64); 6] = [
+        (0, 1_000, 5_000, 0, 0),  // zero input → no charge
+        (10, 1_000, 5_000, 50, 50), // 50000/1000 = 50 exact
+        (7, 1_000, 5_000, 35, 35),  // 35000/1000 = 35 exact
+        (3, 7, 5, 2, 3),            // 15/7 = 2.14 → floor 2, ceil 3
+        (1, 3, 1, 0, 1),            // 1/3 = 0.33 → floor 0, ceil 1
+        (999, 1_000, 1, 0, 1),      // 999/1000 = 0.999 → floor 0, ceil 1
+    ];
+    for (input, ra, rb, ef, ec) in cases {
+        assert!(calc_proportional(input, ra, rb) == Some(ef));
+        assert!(calc_proportional_ceil(input, ra, rb) == Some(ec));
+        // Charged amount is the floor plus 0 or 1 — never more, never less.
+        assert!(ec >= ef && ec <= ef + 1);
+    }
 }
 
 // Sibling proofs: calc_lp_mint and calc_lp_redeem received the same

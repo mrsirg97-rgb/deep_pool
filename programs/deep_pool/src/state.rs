@@ -145,6 +145,14 @@ impl Pool {
         now: u64,
         lookback_slots: u64,
     ) -> Option<u128> {
+        // Mirror the write-side floor onto the read: if the pool is CURRENTLY below
+        // the spot-reserve floor, its live price is untrustworthy (thin, cheaply
+        // manipulated) and `record_observation` already refuses to accumulate it.
+        // Fail closed rather than extrapolate a sub-floor spot into the returned mark
+        // — the consumer (torch liquidation) treats None as "not warm" and refuses.
+        if sol_reserve_now < crate::constants::MIN_SPOT_RESERVE {
+            return None;
+        }
         let gap = now.saturating_sub(self.last_cum_slot);
         let price_now = crate::math::price_q64(sol_reserve_now, token_reserve_now)?;
         let cum_now = crate::math::accumulate_price(self.cum_sol_per_tok, price_now, gap);
@@ -174,6 +182,12 @@ impl Pool {
         // Wrapping difference = true window accumulation (exact while < 2^128);
         // ÷ elapsed slots → time-weighted Q64.64 SOL-per-token price.
         let cum_delta = cum_now.wrapping_sub(start.cum_sol_per_tok);
-        cum_delta.checked_div(dt as u128)
+        // A degenerate Some(0) — true price below 2^-64 SOL/token — would read to the
+        // consumer as "token is worthless" (collateral valued at zero / over-seizable
+        // debt). Fail closed instead, consistent with the warmup/None semantics.
+        match cum_delta.checked_div(dt as u128) {
+            Some(0) => None,
+            other => other,
+        }
     }
 }

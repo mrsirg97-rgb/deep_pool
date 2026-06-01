@@ -209,7 +209,8 @@ export const getSwapQuote = (
   }
 
   if (buy) {
-    const fee = Math.floor((amountIn * SWAP_FEE_BPS) / FEE_DENOMINATOR)
+    // Floored rate, min 1 for a nonzero swap (mirrors on-chain calc_swap_fee).
+    const fee = Math.max(Math.floor((amountIn * SWAP_FEE_BPS) / FEE_DENOMINATOR), 1)
     const effectiveIn = amountIn - fee
     const tokensOut = Math.floor((effectiveIn * tokenReserve) / (solReserve + effectiveIn))
     const transferFee = Math.floor((tokensOut * transferFeeBps) / FEE_DENOMINATOR)
@@ -221,7 +222,8 @@ export const getSwapQuote = (
   } else {
     const transferFee = Math.floor((amountIn * transferFeeBps) / FEE_DENOMINATOR)
     const netIn = amountIn - transferFee
-    const fee = Math.floor((netIn * SWAP_FEE_BPS) / FEE_DENOMINATOR)
+    // min-1 only for a nonzero net (mirrors on-chain calc_swap_fee, which is 0 at 0).
+    const fee = netIn > 0 ? Math.max(Math.floor((netIn * SWAP_FEE_BPS) / FEE_DENOMINATOR), 1) : 0
     const effectiveIn = netIn - fee
     const solOut = Math.floor((effectiveIn * solReserve) / (tokenReserve + effectiveIn))
     const spotPrice = solReserve / tokenReserve

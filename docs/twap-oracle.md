@@ -10,7 +10,7 @@ nothing to sample between swaps. This relocates torch's existing observation
 ring from `Treasury` to the layer that owns the price, and deletes torch's
 `record_observation` crank (the keeper).
 
-**Status:** deep_pool side implemented + green (24 kani, 4 proptests, 2 litesvm).
+**Status:** deep_pool side implemented + green (25 kani, 7 proptests, 2 litesvm).
 torch consumption pending.
 
 ## Model
@@ -90,6 +90,15 @@ time-weighted Q64.64 price. The realized window is ≥ `lookback` (≤ `lookback
 spacing`). `None` if the ring holds no observation that old — the pool is younger
 than the requested window → consumers fail closed. The reverse direction lives in
 `cum_tok_per_sol` if a caller needs it (no reader exposed yet — YAGNI).
+
+**[v7] Read-side fail-closed guards.** The read mirrors the write-side floor in two
+more cases, so a consumer never acts on an untrustworthy mark: (a) if the pool is
+*currently* below `MIN_SPOT_RESERVE`, the live spot is too thin to trust and is
+**not** extrapolated into the head — the read returns `None` (the write path already
+skips accumulation here, so this just makes the read consistent); (b) if the
+time-weighted result divides down to `0` (a degenerate sub-`2^-64` price), it returns
+`None` rather than a mark a consumer would read as "token worthless." The SDK's
+`readTwapSolPerTok` mirror applies the same two guards.
 
 torch reads it from the `deep_pool` + `deep_pool_token_vault` accounts already in
 its liquidation contexts — no new CPI, no new accounts. **Note:** unlike the

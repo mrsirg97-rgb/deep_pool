@@ -76,6 +76,12 @@ pub struct CreatePoolArgs {
 pub struct CreatePool<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
+    // SOL source for `initial_sol_amount` — must sign. Separated from `creator`
+    // so a protocol integrator can fund the pool from a program-controlled PDA
+    // (seed-signed via CpiContext::new_with_signer) instead of routing the SOL
+    // through a user wallet. For wallet callers, pass the same key as `creator`.
+    #[account(mut)]
+    pub sol_source: Signer<'info>,
     // Namespace config — must sign. Prevents pool squatting.
     // For CPI: a program PDA signed via CpiContext::new_with_signer.
     // For wallets: the creator (same key, already signing).
@@ -192,12 +198,15 @@ pub(crate) fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(net_tokens > 0, DeepPoolError::InsufficientInitialTokens);
 
-    // 2. Transfer SOL from creator to pool PDA
+    // 2. Transfer SOL from sol_source to pool PDA. sol_source is `creator` for
+    //    wallet callers, or a program-controlled PDA for integrators (e.g. torch
+    //    migration funds this from its protocol-owned migration_sol_vault, never a
+    //    user wallet).
     anchor_lang::system_program::transfer(
         CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             anchor_lang::system_program::Transfer {
-                from: ctx.accounts.creator.to_account_info(),
+                from: ctx.accounts.sol_source.to_account_info(),
                 to: ctx.accounts.pool.to_account_info(),
             },
         ),

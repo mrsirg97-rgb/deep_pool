@@ -26,10 +26,23 @@ proptest! {
     fn swap_fee_never_panics_and_is_bounded(amount in any::<u64>()) {
         if let Some(f) = calc_swap_fee(amount) {
             prop_assert!(f <= amount);
-            prop_assert_eq!(
-                f,
-                (amount as u128 * SWAP_FEE_BPS as u128 / FEE_DENOMINATOR as u128) as u64,
-            );
+            // Floored rate, but never below 1 for a nonzero swap (min-1 dust gate).
+            let rate = (amount as u128 * SWAP_FEE_BPS as u128 / FEE_DENOMINATOR as u128) as u64;
+            let expected = if amount == 0 { 0 } else { rate.max(1) };
+            prop_assert_eq!(f, expected);
+        }
+    }
+
+    /// Focused on the dust window the `any::<u64>()` sweep above almost never
+    /// samples: every nonzero swap pays ≥ 1 unit, and the fee never exceeds it.
+    #[test]
+    fn swap_fee_min_one_for_nonzero(amount in 0u64..2_000) {
+        let f = calc_swap_fee(amount).unwrap();
+        if amount == 0 {
+            prop_assert_eq!(f, 0);
+        } else {
+            prop_assert!(f >= 1);
+            prop_assert!(f <= amount);
         }
     }
 
@@ -283,6 +296,44 @@ proptest! {
             calc_proportional(input, reserve_a, reserve_b),
             calc_lp_redeem(input, reserve_b, reserve_a),
         );
+    }
+}
+
+// ============================================================================
+// calc_proportional_ceil — pool-favoring rounding for the add_liquidity SOL charge
+// ============================================================================
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(10_000))]
+
+    /// ceil ∈ {floor, floor+1}, and is exactly floor+1 iff there is a remainder.
+    /// Inputs constrained to `input ≤ reserve_a` (the real add_liquidity invariant),
+    /// so the result is bounded by `reserve_b` and both functions return Some.
+    #[test]
+    fn proportional_ceil_rounds_up(
+        reserve_a in 1u64..RESERVE_MAX,
+        reserve_b in 1u64..RESERVE_MAX,
+        input_frac in 0u64..=10_000u64,
+    ) {
+        let input = ((reserve_a as u128 * input_frac as u128) / 10_000) as u64; // ≤ reserve_a
+        let f = calc_proportional(input, reserve_a, reserve_b).unwrap();
+        let c = calc_proportional_ceil(input, reserve_a, reserve_b).unwrap();
+        prop_assert!(c >= f);          // never undercharges
+        prop_assert!(c <= f + 1);      // never overshoots by more than one unit
+        let remainder = (input as u128 * reserve_b as u128) % (reserve_a as u128);
+        if remainder == 0 {
+            prop_assert_eq!(c, f);     // exact division → no rounding
+        } else {
+            prop_assert_eq!(c, f + 1); // remainder → charged up to the provider
+        }
+    }
+
+    #[test]
+    fn proportional_ceil_zero_input_is_zero(
+        reserve_a in 1u64..RESERVE_MAX,
+        reserve_b in 1u64..RESERVE_MAX,
+    ) {
+        prop_assert_eq!(calc_proportional_ceil(0, reserve_a, reserve_b).unwrap(), 0);
     }
 }
 

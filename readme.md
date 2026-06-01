@@ -3,8 +3,8 @@
 ProgramID: CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT
 
 - read the [design](./docs/design.md).
-- 21/21 passing kani proofs in [verification](./docs/verification.md).
-- 24 proptest properties × 10,000 cases in [properties](./docs/properties.md).
+- 25/25 passing kani proofs in [verification](./docs/verification.md).
+- 31 proptest properties × 10,000 cases in [properties](./docs/properties.md).
 - internal [audit](./docs/audit.md).
 - develop on deep_pool and use the test suite with the [sdk](./packages/sdk/readme.md).
 

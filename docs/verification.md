@@ -5,10 +5,10 @@
 DeepPool's core arithmetic is formally verified using [Kani](https://model-checking.github.io/kani/), a Rust model checker backed by the CBMC bounded model checker. Proofs cover swap math, fee conservation, LP minting/redemption, and the self-deepening invariant (k monotonically non-decreasing).
 
 **Tool:** Kani Rust Verifier 0.67.0 / CBMC 6.8.0
-**Target:** `deep_pool` v6.0.0
-**Harnesses:** 24 proof harnesses (23 concrete + 1 symbolic), all passing
+**Target:** `deep_pool` v7.0.0
+**Harnesses:** 25 proof harnesses (24 concrete + 1 symbolic), all passing
 **Source:** `programs/deep_pool/src/kani_proofs.rs`
-**Companion:** [properties.md](./properties.md) — 28 proptest properties for broader random coverage
+**Companion:** [properties.md](./properties.md) — 31 proptest properties for broader random coverage
 
 > **v4.0.0 note.** v4 added `emit_cpi!` event emission to all four instructions. Events are observability, not protocol logic — they don't touch the math verified here. The original 16 Kani harnesses pass unchanged against the v4.0.0 binary.
 >
@@ -17,6 +17,8 @@ DeepPool's core arithmetic is formally verified using [Kani](https://model-check
 > **v5.0.0 note.** Jupiter-readiness hardening pass — Token-2022 extension blocklist, explicit `token_program` constraint, explicit rent-exempt assertion at the swap-sell lamport site, and account-list cleanup. Pure-math surface is unchanged; all 21 harnesses pass against the v5.0.0 binary without modification.
 >
 > **v6.0.0 note.** Added the in-pool TWAP oracle. 3 new harnesses (22-24) verify the oracle's pure math: `price_q64` exactness + `None`-on-zero-denominator, and `accumulate_price` window-difference exactness — including a deliberate past-2^128 wrap, proving the wrapping cumulative differences correctly (the property the mark depends on). The constant-product/LP math is untouched; all 21 prior harnesses pass unchanged. The oracle's ring-selection / lazy-extension logic (`read_twap_sol_per_tok`) is *not* a Kani target (it traverses a fixed array — see "What Is NOT Verified"); it's covered by proptest + litesvm instead.
+>
+> **v7.0.0 note.** Four hardening changes (`create_pool` `sol_source` separation; swap-fee min-1 floor; `add_liquidity` SOL charge rounds UP; TWAP read fails closed on a sub-floor pool or a degenerate `0` mark). 1 new harness — `verify_proportional_ceil_rounds_up` — proves `calc_proportional_ceil ∈ {floor, floor+1}` (the pool-favoring rounding for the deposit's SOL charge), bringing the total to 25. `verify_swap_fee_threshold` was updated to the min-1 semantics (no nonzero swap is fee-free). The sub-floor/`0`→`None` read guards are proptest+litesvm-covered (the read traverses a fixed array; not a Kani target). All prior harnesses pass unchanged.
 
 ## What Is Verified
 
@@ -25,7 +27,7 @@ DeepPool's core arithmetic is formally verified using [Kani](https://model-check
 | Harness | Method | Property |
 |---------|--------|----------|
 | `verify_swap_fee_conservation` | Concrete | fee + effective = input at all scales (1 lamport to 1000 SOL) |
-| `verify_swap_fee_threshold` | Concrete | fee = 0 below 400 lamports, fee = 1 at 400, fee = 2,500,000 at 1 SOL |
+| `verify_swap_fee_threshold` | Concrete | min-1 floor: fee = 0 only at amount 0, fee = 1 for any nonzero swap up to 400 lamports, fee = 2,500,000 at 1 SOL |
 | `verify_swap_fee_bounded_symbolic` | **Symbolic** | fee ≤ amount for ALL u64 inputs |
 
 ### Constant Product Swap (Harnesses 4-8)

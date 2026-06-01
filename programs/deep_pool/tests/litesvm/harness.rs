@@ -362,6 +362,7 @@ pub fn create_pool(
         program_id: deep_pool::ID,
         accounts: deep_pool::accounts::CreatePool {
             creator: creator.pubkey(),
+            sol_source: creator.pubkey(),
             config: config.pubkey(),
             token_mint: *mint,
             pool,

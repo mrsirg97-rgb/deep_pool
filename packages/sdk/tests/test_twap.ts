@@ -77,6 +77,20 @@ eq(
   readTwapSolPerTok(state(P * 1000n, 2000n, [obs(1000n, 0n)]), SOL, 0n, 2000n, LB),
   null,
 )
+eq(
+  'guard: sub-floor SOL reserve → null (mirrors MIN_SPOT_RESERVE read gate)',
+  // 4 SOL < 5 SOL floor — same window as the "constant price → P" case, but the
+  // untrustworthy live price now fails closed instead of returning P.
+  readTwapSolPerTok(state(P * 1000n, 2000n, [obs(1000n, 0n)]), 4_000_000_000n, TOK, 2000n, LB),
+  null,
+)
+eq(
+  'guard: degenerate 0 mark → null (Some(0) fail-closed)',
+  // cum_delta = 600 − 100 = 500 over dt = 1000 → floors to 0 → null, instead of a
+  // bogus "token worthless" mark reaching the consumer.
+  readTwapSolPerTok(state(600n, 2000n, [obs(1000n, 100n)]), SOL, TOK, 2000n, LB),
+  null,
+)
 
 // --- constant price, gap == 0 (no lazy extension) ---
 eq(

@@ -27,9 +27,14 @@ export const buildCreatePoolTransaction = async (
     tokenMint: string
     initialTokenAmount: number
     initialSolAmount: number
+    // Optional SOL source for the pool's initial liquidity. Defaults to `creator`
+    // for wallet callers; a protocol integrator (e.g. torch migration) passes a
+    // distinct system-owned PDA so the SOL never transits a user wallet.
+    solSource?: string
   },
 ): Promise<{ transaction: Transaction; pool: string; lpMint: string }> => {
   const creator = new PublicKey(params.creator)
+  const solSource = params.solSource ? new PublicKey(params.solSource) : creator
   const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
   const [pool] = getPoolPda(config, tokenMint)
@@ -52,6 +57,7 @@ export const buildCreatePoolTransaction = async (
     'create_pool',
     {
       creator,
+      solSource,
       config,
       tokenMint,
       pool,

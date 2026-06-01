@@ -52,7 +52,8 @@ Pools in different namespaces are at different addresses. They can't interfere, 
 Initialize a new pool for a Token-2022 mint paired with native SOL, under a namespace the caller signs for.
 
 **Signers:**
-- `creator` — pays rent, deposits initial liquidity
+- `creator` — pays rent, supplies the token deposit, receives LP, signs
+- `sol_source` — **[v7]** funds `initial_sol_amount`. Separated from `creator` so a protocol integrator (e.g. torch migration) can fund the pool from a program-controlled system PDA, so the raise never transits a user wallet. Wallet callers pass the same key as `creator`.
 - `config` — namespace authority (may equal creator for wallet-created pools)
 
 **Inputs:**
@@ -63,7 +64,7 @@ Initialize a new pool for a Token-2022 mint paired with native SOL, under a name
 1. Derive pool PDA from `(config, token_mint)`
 2. Create pool state, token vault, LP mint (no freeze authority)
 3. Transfer tokens from creator to vault via `transfer_checked`, measure net received (handles Token-2022 transfer fees)
-4. `System.transfer` SOL from creator to pool PDA
+4. `System.transfer` SOL from `sol_source` to pool PDA
 5. Compute initial LP supply: `sqrt(sol_amount * net_tokens) - MIN_LIQUIDITY`
 6. Mint 80% LP to creator, 20% LP to `pool_lp_account` (permanently locked — the pool PDA cannot sign `remove_liquidity`)
 7. Record initial reserves, namespace config, and bumps. Pool is live.
@@ -86,9 +87,9 @@ Deposit SOL + tokens proportionally, receive LP tokens.
 - `min_lp_out` — minimum LP tokens to receive (slippage protection against Token-2022 transfer fees)
 
 **Flow:**
-1. Compute required SOL: `sol_required = token_amount * sol_reserve / token_reserve`
-2. Slippage check: `sol_required <= max_sol_amount`
-3. `transfer_checked` tokens to vault, measure net received
+1. Pre-flight slippage check on the worst-case SOL cost: `ceil(token_amount * sol_reserve / token_reserve) <= max_sol_amount`
+2. `transfer_checked` tokens to vault, measure net received
+3. Compute required SOL on the *net* tokens: `sol_required = ceil(net_tokens * sol_reserve / token_reserve)` — **[v7]** rounded UP so any sub-lamport remainder is paid by the provider, never silently absorbed by the pool (AMM rounding must favour the pool; `max_sol_amount` bounds it)
 4. `System.transfer` SOL to pool PDA
 5. Compute LP: `lp_amount = lp_supply * net_tokens / token_reserve`
 6. Slippage check: `lp_amount >= min_lp_out`

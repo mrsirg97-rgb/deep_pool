@@ -93,7 +93,10 @@ pub(crate) fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Res
     //    transfer fee — actual sol_required derived from net_tokens below is
     //    always ≤ this worst case, so passing this check guarantees the
     //    provider's max_sol_amount is respected.)
-    let worst_case_sol = math::calc_proportional(args.token_amount, token_reserve, sol_reserve)
+    // Ceil so this is a true upper bound on the (also-ceiled) `sol_required` below —
+    // since net_tokens ≤ token_amount, ceil(net) ≤ ceil(gross) = worst_case, so
+    // passing the max_sol_amount check here still guarantees the actual charge fits.
+    let worst_case_sol = math::calc_proportional_ceil(args.token_amount, token_reserve, sol_reserve)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(worst_case_sol > 0, DeepPoolError::ZeroDeposit);
     require!(
@@ -127,10 +130,10 @@ pub(crate) fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Res
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(net_tokens > 0, DeepPoolError::ZeroDeposit);
 
-    // 3. Compute actual SOL deposit from net_tokens (after Token-2022 fee).
-    //    Provider pays exactly the proportional share of what actually landed
-    //    in the vault — no silent over-payment.
-    let sol_required = math::calc_proportional(net_tokens, token_reserve, sol_reserve)
+    // 3. Compute actual SOL deposit from net_tokens (after Token-2022 fee). Ceiled
+    //    so any sub-lamport remainder is paid by the provider, not absorbed by the
+    //    pool (rounding favours the pool). The max_sol_amount check above bounds it.
+    let sol_required = math::calc_proportional_ceil(net_tokens, token_reserve, sol_reserve)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(sol_required > 0, DeepPoolError::ZeroDeposit);
 
