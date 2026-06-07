@@ -15,6 +15,8 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  VersionedTransaction,
+  VersionedTransaction,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js'
 import {
@@ -65,9 +67,10 @@ const log = (msg: string) => {
 const signAndSend = async (
   connection: Connection,
   wallet: Keypair,
-  tx: Transaction,
+  tx: Transaction | VersionedTransaction,
 ): Promise<string> => {
-  tx.partialSign(wallet)
+  if (tx instanceof VersionedTransaction) tx.sign([wallet])
+  else tx.partialSign(wallet)
   const raw = tx.serialize()
   const sig = await connection.sendRawTransaction(raw, {
     skipPreflight: false,

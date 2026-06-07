@@ -9,8 +9,9 @@ import {
   Connection,
   PublicKey,
   SystemProgram,
-  Transaction,
   TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
 } from '@solana/web3.js'
 import idl from './deep_pool.json'
 import { PROGRAM_ID } from './constants'
@@ -19,8 +20,29 @@ import { getEventAuthorityPda, getLpMintPda, getPoolPda, getVaultPda } from './p
 const coder = new BorshCoder(idl as unknown as Idl)
 const [EVENT_AUTHORITY] = getEventAuthorityPda()
 
-export const buildCreatePoolTransaction = async (
+// Compile raw instructions into a signable v0 VersionedTransaction. Each
+// `build*Transaction` wraps the matching `build*Instructions` so standalone
+// callers get a ready-to-sign tx, while composers (e.g. the torch migration /
+// vault-swap path) take the instructions and build their own tx — adding
+// memos, priority fees, or batching across programs.
+const toVersioned = async (
   connection: Connection,
+  instructions: TransactionInstruction[],
+  payer: PublicKey,
+): Promise<VersionedTransaction> => {
+  const { blockhash } = await connection.getLatestBlockhash()
+  const message = new TransactionMessage({
+    payerKey: payer,
+    recentBlockhash: blockhash,
+    instructions,
+  }).compileToV0Message()
+  return new VersionedTransaction(message)
+}
+
+// ── create_pool ────────────────────────────────────────────────────────────
+
+export const buildCreatePoolInstructions = async (
+  _connection: Connection,
   params: {
     creator: string
     config: string // signer-verified namespace (wallet pubkey for standalone, program PDA for CPI)
@@ -32,7 +54,7 @@ export const buildCreatePoolTransaction = async (
     // distinct system-owned PDA so the SOL never transits a user wallet.
     solSource?: string
   },
-): Promise<{ transaction: Transaction; pool: string; lpMint: string }> => {
+): Promise<{ instructions: TransactionInstruction[]; pool: string; lpMint: string }> => {
   const creator = new PublicKey(params.creator)
   const solSource = params.solSource ? new PublicKey(params.solSource) : creator
   const config = new PublicKey(params.config)
@@ -80,15 +102,22 @@ export const buildCreatePoolTransaction = async (
     },
   )
 
-  const tx = new Transaction().add(ix)
-  tx.feePayer = creator
-  const { blockhash } = await connection.getLatestBlockhash()
-  tx.recentBlockhash = blockhash
-  return { transaction: tx, pool: pool.toBase58(), lpMint: lpMint.toBase58() }
+  return { instructions: [ix], pool: pool.toBase58(), lpMint: lpMint.toBase58() }
 }
 
-export const buildSwapTransaction = async (
+export const buildCreatePoolTransaction = async (
   connection: Connection,
+  params: Parameters<typeof buildCreatePoolInstructions>[1],
+): Promise<{ transaction: VersionedTransaction; pool: string; lpMint: string }> => {
+  const { instructions, pool, lpMint } = await buildCreatePoolInstructions(connection, params)
+  const transaction = await toVersioned(connection, instructions, new PublicKey(params.creator))
+  return { transaction, pool, lpMint }
+}
+
+// ── swap ──────────────────────────────────────────────────────────────────
+
+export const buildSwapInstructions = async (
+  _connection: Connection,
   params: {
     user: string
     config: string
@@ -100,7 +129,7 @@ export const buildSwapTransaction = async (
     // CPI-style callers pass a distinct system-owned PDA.
     solSource?: string
   },
-): Promise<{ transaction: Transaction; message: string }> => {
+): Promise<TransactionInstruction[]> => {
   const user = new PublicKey(params.user)
   const solSource = params.solSource ? new PublicKey(params.solSource) : user
   const config = new PublicKey(params.config)
@@ -148,16 +177,23 @@ export const buildSwapTransaction = async (
     },
   )
 
-  const tx = new Transaction().add(createUserAta, ix)
-  tx.feePayer = user
-  const { blockhash } = await connection.getLatestBlockhash()
-  tx.recentBlockhash = blockhash
-  const direction = params.buy ? 'Buy' : 'Sell'
-  return { transaction: tx, message: `${direction} swap on DeepPool` }
+  return [createUserAta, ix]
 }
 
-export const buildAddLiquidityTransaction = async (
+export const buildSwapTransaction = async (
   connection: Connection,
+  params: Parameters<typeof buildSwapInstructions>[1],
+): Promise<{ transaction: VersionedTransaction; message: string }> => {
+  const instructions = await buildSwapInstructions(connection, params)
+  const transaction = await toVersioned(connection, instructions, new PublicKey(params.user))
+  const direction = params.buy ? 'Buy' : 'Sell'
+  return { transaction, message: `${direction} swap on DeepPool` }
+}
+
+// ── add_liquidity ───────────────────────────────────────────────────────────
+
+export const buildAddLiquidityInstructions = async (
+  _connection: Connection,
   params: {
     provider: string
     config: string
@@ -166,7 +202,7 @@ export const buildAddLiquidityTransaction = async (
     maxSolAmount: number
     minLpOut: number
   },
-): Promise<{ transaction: Transaction; message: string }> => {
+): Promise<TransactionInstruction[]> => {
   const provider = new PublicKey(params.provider)
   const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
@@ -212,15 +248,22 @@ export const buildAddLiquidityTransaction = async (
     },
   )
 
-  const tx = new Transaction().add(ix)
-  tx.feePayer = provider
-  const { blockhash } = await connection.getLatestBlockhash()
-  tx.recentBlockhash = blockhash
-  return { transaction: tx, message: 'Add liquidity to DeepPool' }
+  return [ix]
 }
 
-export const buildRemoveLiquidityTransaction = async (
+export const buildAddLiquidityTransaction = async (
   connection: Connection,
+  params: Parameters<typeof buildAddLiquidityInstructions>[1],
+): Promise<{ transaction: VersionedTransaction; message: string }> => {
+  const instructions = await buildAddLiquidityInstructions(connection, params)
+  const transaction = await toVersioned(connection, instructions, new PublicKey(params.provider))
+  return { transaction, message: 'Add liquidity to DeepPool' }
+}
+
+// ── remove_liquidity ────────────────────────────────────────────────────────
+
+export const buildRemoveLiquidityInstructions = async (
+  _connection: Connection,
   params: {
     provider: string
     config: string
@@ -229,7 +272,7 @@ export const buildRemoveLiquidityTransaction = async (
     minSolOut: number
     minTokensOut: number
   },
-): Promise<{ transaction: Transaction; message: string }> => {
+): Promise<TransactionInstruction[]> => {
   const provider = new PublicKey(params.provider)
   const config = new PublicKey(params.config)
   const tokenMint = new PublicKey(params.tokenMint)
@@ -273,11 +316,16 @@ export const buildRemoveLiquidityTransaction = async (
     },
   )
 
-  const tx = new Transaction().add(ix)
-  tx.feePayer = provider
-  const { blockhash } = await connection.getLatestBlockhash()
-  tx.recentBlockhash = blockhash
-  return { transaction: tx, message: 'Remove liquidity from DeepPool' }
+  return [ix]
+}
+
+export const buildRemoveLiquidityTransaction = async (
+  connection: Connection,
+  params: Parameters<typeof buildRemoveLiquidityInstructions>[1],
+): Promise<{ transaction: VersionedTransaction; message: string }> => {
+  const instructions = await buildRemoveLiquidityInstructions(connection, params)
+  const transaction = await toVersioned(connection, instructions, new PublicKey(params.provider))
+  return { transaction, message: 'Remove liquidity from DeepPool' }
 }
 
 async function buildInstruction(

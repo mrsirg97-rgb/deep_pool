@@ -40,10 +40,17 @@ export type {
 export { parseEvents } from './events'
 export type { DecodedEvent } from './events'
 export {
+  // Finalized v0 VersionedTransaction builders (standalone, ready to sign).
   buildAddLiquidityTransaction,
   buildCreatePoolTransaction,
   buildRemoveLiquidityTransaction,
   buildSwapTransaction,
+  // Instruction-level builders (for composers — add memos/priority fees,
+  // batch across programs, or build your own versioned tx).
+  buildAddLiquidityInstructions,
+  buildCreatePoolInstructions,
+  buildRemoveLiquidityInstructions,
+  buildSwapInstructions,
 } from './transactions'
 export { getTwapSolPerTok, q64ToFloat, readTwapSolPerTok, twapStateFromDecodedPool } from './twap'
 export type { TwapObservation, TwapPoolState } from './twap'

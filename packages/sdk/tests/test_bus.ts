@@ -25,7 +25,7 @@
  * INDEXER_URL env var overrides the indexer target (default http://localhost:8080).
  */
 
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from '@solana/web3.js'
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js'
 import {
   TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
@@ -99,9 +99,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const signAndSend = async (
   connection: Connection,
   wallet: Keypair,
-  tx: Transaction,
+  tx: Transaction | VersionedTransaction,
 ): Promise<string> => {
-  tx.partialSign(wallet)
+  if (tx instanceof VersionedTransaction) tx.sign([wallet])
+  else tx.partialSign(wallet)
   const sig = await connection.sendRawTransaction(tx.serialize(), {
     skipPreflight: false,
     preflightCommitment: 'confirmed',
