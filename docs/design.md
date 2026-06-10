@@ -71,8 +71,8 @@ Initialize a new pool for a Token-2022 mint paired with native SOL, under a name
 
 **Constraints:**
 - One pool per `(config, mint)` pair — PDA enforced
-- `initial_sol_amount >= MIN_INITIAL_SOL` (0.1 SOL)
-- `initial_token_amount >= MIN_INITIAL_TOKENS` (1 token)
+- `initial_sol_amount >= MIN_INITIAL_SOL` (5 SOL — skin-in-the-game vs dust/malicious pools; makes the born locked-LP floor (1 SOL) dominate the retention floor through a >90% decline; and ≥ `MIN_SPOT_RESERVE`, so every pool is TWAP-capable from its first swap)
+- `initial_token_amount >= MIN_INITIAL_TOKENS` (5 tokens — token-side mirror of the same consistency argument)
 - Token must be Token-2022 (owner check + explicit `token_program == TOKEN_2022_PROGRAM_ID` constraint)
 - Mint must not carry any blocklisted Token-2022 extension (`TransferHook`, `PermanentDelegate`, `InterestBearingConfig`, `MintCloseAuthority`, `NonTransferable`, `DefaultAccountState`, `Pausable`) — see `validate_mint_extensions`
 - `sqrt(sol * tokens) > MIN_LIQUIDITY` (floor against first-depositor inflation)
@@ -111,7 +111,7 @@ Burn LP tokens, receive proportional share of SOL + tokens.
 **Flow:**
 1. Compute proportional share: `sol_out = lp_amount * sol_reserve / lp_supply`, same for tokens
 2. Slippage checks
-3. Ensure pool retains `sol_remaining > 0 && tokens_remaining > 0` (non-negative invariant; the LP lock math implicitly enforces a much stronger floor — see "LP Lock" below)
+3. Retention floor: `sol_remaining >= MIN_POOL_RESERVE_SOL (0.1 SOL) && tokens_remaining >= MIN_POOL_RESERVE_TOKENS (1 token)`. Defense-in-depth only — the LP lock is the real floor and dominates unless the pool's SOL reserve has collapsed >90% below the creation minimum; in that crashed tail the check blocks the last ~0.1 SOL of exits (which yield dust anyway) and keeps the pool alive for a revival. Split from the creation minimums on purpose: sharing them froze ALL LP in born-minimum pools.
 4. Burn LP from provider
 5. `transfer_checked` tokens from vault to provider
 6. Direct lamport credit from pool PDA to provider
@@ -180,11 +180,11 @@ Because:
 - The locked fraction grows monotonically with deposit history
 - Repeated add/remove cycles by the same LP compound: `0.925^n` of original value retained after n cycles
 
-**For a minimum-size pool (0.1 SOL initial):**
-- Creator contributes 0.1 SOL, receives 80% of LP
+**For a minimum-size pool (5 SOL initial):**
+- Creator contributes 5 SOL, receives 80% of LP
 - 20% of LP is locked at `pool_lp_account`
-- Maximum possible drain: creator redeems all their LP → pool retains 0.02 SOL + rent
-- This is the floor
+- Maximum possible drain: creator redeems all their LP → pool retains 1 SOL + rent
+- This is the floor — and it stays above the 0.1-SOL retention backstop until the pool's SOL reserve falls >90% (swaps, not liquidity ops, are the only thing that can erode it: removes leave the locked share's absolute value exactly invariant; adds grow it)
 
 ## Constants
 
@@ -197,8 +197,10 @@ FEE_DENOMINATOR      = 10000
 LP_LOCK_CREATOR_BPS  = 2000        // 20% locked on create_pool
 LP_LOCK_PROVIDER_BPS = 750         // 7.5% locked on add_liquidity
 MIN_LIQUIDITY        = 1000        // subtracted from initial sqrt — anti first-depositor-inflation floor
-MIN_INITIAL_SOL      = 100_000_000 // 0.1 SOL
-MIN_INITIAL_TOKENS   = 1_000_000   // 1 token (6 decimals)
+MIN_INITIAL_SOL      = 5_000_000_000 // 5 SOL — creation gate (skin-in-the-game + born lock floor + TWAP-capable)
+MIN_INITIAL_TOKENS   = 5_000_000   // 5 tokens (6 decimals) — creation gate
+MIN_POOL_RESERVE_SOL = 100_000_000 // 0.1 SOL — remove-side retention backstop (split from creation)
+MIN_POOL_RESERVE_TOKENS = 1_000_000 // 1 token — remove-side retention backstop
 // TWAP oracle (v6.0.0)
 TWAP_RING_SIZE         = 16          // ring of cumulative snapshots
 MIN_OBS_SPACING_SLOTS  = 500         // ring-snapshot cadence; window ≈ 16×500 ≈ 53 min @ 400ms
@@ -283,7 +285,7 @@ programs/deep_pool/src/
   constants.rs              — seeds, fee rate, LP lock rates, minimums, TOKEN_2022_PROGRAM_ID
   error.rs                  — error codes (incl. UnsupportedMintExtension)
   math.rs                   — checked constant-product math + integer_sqrt
-  kani_proofs.rs            — 21 formal verification proofs
+  kani_proofs.rs            — 25 formal verification proofs
   instructions.rs           — module root (explicit re-exports, handlers are pub(crate))
   instructions/
     create_pool.rs          — pool init, signer-verified namespace, Token-2022 extension blocklist, initial LP mint (80/20)
@@ -291,6 +293,8 @@ programs/deep_pool/src/
     remove_liquidity.rs     — LP burn, proportional withdrawal
     swap.rs                 — buy/sell, unified System.transfer path, sol_source split, explicit rent-exempt assertion on sell
 programs/deep_pool/tests/
-  math_proptests.rs         — 24 property-based fuzz tests (10,000 cases each)
-  litesvm/                  — 20 end-to-end tests (all 4 ixs, Token-2022 fees, extension rejection, CU bench)
+  math_proptests.rs         — 31 property-based fuzz tests (10,000 cases each)
+  litesvm/                  — 32 end-to-end tests (all 4 ixs, Token-2022 fees, full extension-blocklist
+                              coverage, TWAP ring/dust/idempotency/neutrality, event-content assertions
+                              against chain state, P-1 retention-floor semantics, CU bench)
 ```

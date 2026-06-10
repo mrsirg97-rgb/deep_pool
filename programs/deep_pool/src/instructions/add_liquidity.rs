@@ -155,15 +155,19 @@ pub(crate) fn handler(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Res
     require!(lp_amount > 0, DeepPoolError::ZeroDeposit);
     require!(
         lp_amount >= args.min_lp_out,
-        DeepPoolError::TokenOutputSlippage
+        DeepPoolError::LpOutputSlippage
     );
 
-    // 6. Lock 7.5% of LP in the pool PDA — permanently inaccessible
-    let lp_burn = (lp_amount as u128)
+    // 6. Lock 7.5% of LP in the pool PDA — permanently inaccessible. Floored,
+    //    but never below 1 unit (mirrors the swap fee's min-1 dust closure):
+    //    "every deposit locks" holds for dust adds too, and the provider-side
+    //    `lp_to_provider > 0` gate below then implies lp_amount ≥ 2.
+    let lp_burn = ((lp_amount as u128)
         .checked_mul(LP_LOCK_PROVIDER_BPS as u128)
         .ok_or(DeepPoolError::MathOverflow)?
         .checked_div(10000)
-        .ok_or(DeepPoolError::MathOverflow)? as u64;
+        .ok_or(DeepPoolError::MathOverflow)? as u64)
+        .max(1);
     let lp_to_provider = lp_amount
         .checked_sub(lp_burn)
         .ok_or(DeepPoolError::MathOverflow)?;

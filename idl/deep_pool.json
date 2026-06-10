@@ -2,7 +2,7 @@
   "address": "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT",
   "metadata": {
     "name": "deep_pool",
-    "version": "7.0.0",
+    "version": "8.0.0",
     "spec": "0.1.0",
     "description": "Immutable constant-product pool protocol"
   },
@@ -1176,6 +1176,11 @@
       "code": 6013,
       "name": "UnsupportedMintExtension",
       "msg": "Mint uses a Token-2022 extension not supported by this pool"
+    },
+    {
+      "code": 6014,
+      "name": "LpOutputSlippage",
+      "msg": "LP output below minimum (slippage exceeded)"
     }
   ],
   "types": [

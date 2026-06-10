@@ -30,13 +30,13 @@ fn mint_and_pool_lifecycle() {
         &creator,
         &mint,
         100_000_000_000,      // 100k tokens
-        2 * LAMPORTS_PER_SOL, // 2 SOL
+        6 * LAMPORTS_PER_SOL, // 6 SOL (above the 5-SOL creation minimum)
     )
     .expect("create_pool failed");
 
     let pool = get_pool(&env, &pool_ctx.pool);
     assert_eq!(pool.config, creator.pubkey());
     assert_eq!(pool.token_mint, mint);
-    assert_eq!(pool.initial_sol, 2 * LAMPORTS_PER_SOL);
+    assert_eq!(pool.initial_sol, 6 * LAMPORTS_PER_SOL);
     assert!(pool.initial_tokens > 0);
 }

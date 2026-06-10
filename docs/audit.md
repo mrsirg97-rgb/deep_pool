@@ -174,6 +174,42 @@ DeepPool now maintains a **keeperless** time-weighted price oracle, advanced on 
 
 **Security posture.** No new instruction, no new account in any existing context, no new error code (record surfaces overflow as `MathOverflow`; read returns `Option`). The oracle is **write-only by the validated swap path, read-only by everyone else**. Manipulation resistance is the standard TWAP property — moving the mark requires holding an off-price across the window, bleeding to arbitrage every block — reinforced by a dust-pool floor (`MIN_SPOT_RESERVE` = 5 SOL) below which observations are skipped. The four new informational findings **I-8–I-11 are the oracle's consumer contract** — the conditions an integrator must respect to read the mark safely. 3 new Kani proofs + 4 proptests + 2 litesvm tests; the SDK ships a faithful TS read helper (`readTwapSolPerTok`) with the wrapping arithmetic handled correctly + a no-network unit test. **No new attack surface on the pool itself; the residual risk is integration-side and documented.**
 
+### v8.0.0 — Correctness review: creation/retention split + indexer contract (2026-06-09)
+
+Joint review with torch_market (sessions/prompts/prompt-001.md). No new attack
+surface; one economic fix, contract-pinning, and a test-coverage pass (litesvm
+19 → 32).
+
+**P-1 — `MIN_INITIAL_SOL` 0.1 → 5 SOL, and the creation/retention constants
+SPLIT.** The remove-side retention check reused the creation minimums, which
+froze ALL LP in born-minimum pools (the check bound before the locked-LP floor
+could). New: `MIN_INITIAL_SOL/TOKENS` (5 SOL / 5 tokens, creation — skin in the
+game vs dust/malicious pools) vs `MIN_POOL_RESERVE_SOL/TOKENS` (0.1 SOL /
+1 token, retention). The born locked floor (20% × 5 = 1 SOL) now dominates the
+retention floor through a >90% price decline, so "the LP lock is the floor"
+holds across realistic price paths; 5 SOL ≥ `MIN_SPOT_RESERVE` also makes every
+pool TWAP-capable from its first swap. Residual: in a >90%-crashed pool the
+retention backstop blocks the last ~0.1 SOL of exits (kept low on purpose;
+documented in design.md). Tests: `smallest_pool_full_redeem_leaves_locked_floor`,
+`crashed_pool_retention_floor_blocks_last_exits`.
+
+**Indexer contract pinned (events.md).** Donations move reserves with no event,
+so delta-folding is unsound — the state-stamped `*_reserve_after` snapshots are
+the resync mechanism and are now the documented contract; the TWAP mark is
+account-state, never event-derivable. Event CONTENT is now tested for the first
+time: `tests/litesvm/events.rs` decodes the `emit_cpi!` payloads (the indexer's
+decode path) for all four instructions against independently-read chain state,
+under a 1% transfer-fee mint so every gross/net distinction is live.
+
+**Smaller items.** Dust deposits no longer escape the 7.5% LP lock
+(`lp_burn = max(floor, 1)`, mirroring the swap fee's min-1); new
+`LpOutputSlippage` error (6014, appended — prior codes stable) replaces the
+`TokenOutputSlippage` reuse on `min_lp_out`; the contradictory extension-policy
+inline comment in create_pool.rs fixed (blocklist, accept-unknown — deliberate);
+full blocklist test coverage (all 7 extensions); four TWAP gap tests (ring
+wraparound + fail-closed past the surviving span, dust-gate skip, same-slot
+idempotency, liquidity-op oracle-neutrality).
+
 ### v7.0.0 — Fresh-eyes full re-audit + three hardening fixes
 
 A fresh adversarial pass over the **whole** AMM (swap/custody, liquidity/LP, TWAP/constraints), motivated by torch's deeper integration. **No critical/high/medium findings.** The constant-product invariant (rounding always favours the pool), the donation-immune derived `sol_reserve` (the marginal SOL extractable from a non-refundable donation is provably < the donation), the direct-lamport sell (double rent-guarded, balanced, no `UnbalancedInstruction`), the first-deposit inflation surface (structurally closed — empty pools only seed via `create_pool`), and the TWAP's single-tx-manipulation resistance (a price-moving swap zeroes its own observation gap) all re-verified clean. Three LOW/informational hardening items were found **and fixed in v7** (a fourth — a read-side depth floor — was considered and **rejected**, see below):

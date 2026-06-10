@@ -105,6 +105,25 @@ SwapExecuted {
 
 No `lp_supply` — unchanged on swaps. Indexers carry it forward from the most recent liquidity event. No `total_swaps` either — lifetime swap count is a vanity metric; consumers that want activity numbers should use windowed indexer queries (`COUNT(*) FROM swaps WHERE pool_id = $1 AND created_at > now() - interval '24h'`).
 
+## Indexer contract (load-bearing — the torch_market indexer indexes this stream)
+
+The torch_market indexer ingests deep_pool events byte-for-byte; consumers must
+never see a different world than the on-chain state machine. Three rules:
+
+1. **Snapshots are authoritative; never fold deltas.** Reserves can move with NO
+   event: lamport donations to the pool PDA and token transfers into the vault
+   ATA (economically captured by LPs — audit I-4 — but invisible to the stream).
+   `*_reserve_after` / `lp_supply_after` are read live post-commit precisely so
+   every event is a RESYNC point. A delta-folding indexer drifts across any
+   donation; "pre-state = post − amounts" holds only donation-free.
+2. **`lp_supply` carries forward across swaps** (swaps don't change it and the
+   SwapExecuted event deliberately omits it).
+3. **The TWAP mark is account-state, not event-derivable.** The oracle head/ring
+   never appear in events, and donations shift inter-event reserves, so replaying
+   `accumulate_price` from the stream is unsound. Off-chain consumers read the
+   live `Pool` account (SDK `readTwapSolPerTok`) — never derive the mark from
+   events.
+
 ## Out of scope
 
 - Cross-pool routing events — single-hop only today.

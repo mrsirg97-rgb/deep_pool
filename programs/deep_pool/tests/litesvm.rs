@@ -25,3 +25,6 @@ mod swap;
 
 #[path = "litesvm/twap.rs"]
 mod twap;
+
+#[path = "litesvm/events.rs"]
+mod events;

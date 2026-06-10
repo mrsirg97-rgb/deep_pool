@@ -6,7 +6,8 @@ use solana_sdk::{
 
 use crate::expect_err;
 use crate::harness::{
-    create_mint, create_mint_with_close_authority, create_pool, get_pool, mint_to_user, Env,
+    create_mint, create_mint_with_blocked_extension, create_mint_with_close_authority,
+    create_pool, get_pool, mint_to_user, Env,
 };
 use deep_pool::constants::*;
 use deep_pool::error::DeepPoolError;
@@ -14,7 +15,7 @@ use deep_pool::error::DeepPoolError;
 /// Standard setup: vanilla 0-fee Token-2022 mint + funded creator with tokens.
 fn setup(env: &mut Env, fee_bps: u16) -> (Pubkey, Keypair) {
     let (mint, authority) = create_mint(env, fee_bps, 6);
-    let creator = env.new_funded(10 * LAMPORTS_PER_SOL);
+    let creator = env.new_funded(20 * LAMPORTS_PER_SOL);
     mint_to_user(env, &mint, &authority, &creator, 10_000_000_000_000);
     (mint, creator)
 }
@@ -28,14 +29,14 @@ fn happy_path() {
         &creator,
         &mint,
         100_000_000_000,
-        2 * LAMPORTS_PER_SOL,
+        6 * LAMPORTS_PER_SOL,
     )
     .expect("create_pool");
 
     let pool = get_pool(&env, &p.pool);
     assert_eq!(pool.config, creator.pubkey());
     assert_eq!(pool.token_mint, mint);
-    assert_eq!(pool.initial_sol, 2 * LAMPORTS_PER_SOL);
+    assert_eq!(pool.initial_sol, 6 * LAMPORTS_PER_SOL);
     assert!(pool.initial_tokens > 0);
 }
 
@@ -62,7 +63,7 @@ fn rejects_initial_tokens_below_minimum() {
         &creator,
         &mint,
         MIN_INITIAL_TOKENS - 1,
-        2 * LAMPORTS_PER_SOL,
+        6 * LAMPORTS_PER_SOL,
     );
     expect_err!(r, DeepPoolError::InsufficientInitialTokens);
 }
@@ -80,7 +81,7 @@ fn token_2022_fee_lands_net_in_vault() {
         &creator,
         &mint,
         100_000_000_000,
-        2 * LAMPORTS_PER_SOL,
+        6 * LAMPORTS_PER_SOL,
     )
     .expect("create_pool");
     let pool = get_pool(&env, &p.pool);
@@ -95,14 +96,58 @@ fn rejects_blocked_extension_mint_close_authority() {
     // vault. create_pool must refuse such mints at the extension blocklist.
     let mut env = Env::new();
     let (mint, authority) = create_mint_with_close_authority(&mut env, 6);
-    let creator = env.new_funded(10 * LAMPORTS_PER_SOL);
+    let creator = env.new_funded(20 * LAMPORTS_PER_SOL);
     mint_to_user(&mut env, &mint, &authority, &creator, 10_000_000_000_000);
     let r = create_pool(
         &mut env,
         &creator,
         &mint,
         100_000_000_000,
-        2 * LAMPORTS_PER_SOL,
+        6 * LAMPORTS_PER_SOL,
     );
     expect_err!(r, DeepPoolError::UnsupportedMintExtension);
+}
+
+#[test]
+fn rejects_every_blocked_extension() {
+    // [P-6] One arm per blocklist entry (MintCloseAuthority has its own test
+    // above). Insurance that an spl-token-2022 ExtensionType reshuffle or a
+    // blocklist edit can't silently unblock a known-malicious extension.
+    // NOTE: NonTransferable would also fail later at the deposit transfer —
+    // the blocklist must reject it FIRST (extension check precedes transfers).
+    for which in [
+        "transfer_hook",
+        "permanent_delegate",
+        "interest_bearing",
+        "non_transferable",
+        "default_account_state",
+        "pausable",
+    ] {
+        let mut env = Env::new();
+        let (mint, authority) = create_mint_with_blocked_extension(&mut env, which, 6);
+        let creator = env.new_funded(20 * LAMPORTS_PER_SOL);
+        if which == "default_account_state" {
+            // ATA initializes FROZEN under this extension — mint_to would fail,
+            // but the handler's blocklist check runs before any transfer, so an
+            // empty (frozen) ATA is enough to reach it.
+            crate::harness::create_user_ata(&mut env, &mint, &creator);
+        } else {
+            mint_to_user(&mut env, &mint, &authority, &creator, 10_000_000_000_000);
+        }
+        let r = create_pool(
+            &mut env,
+            &creator,
+            &mint,
+            100_000_000_000,
+            6 * LAMPORTS_PER_SOL,
+        );
+        let err = r.expect_err(&format!("{which}: create_pool must reject"));
+        let code = crate::harness::anchor_err_code(&err)
+            .unwrap_or_else(|| panic!("{which}: expected custom error, got {err:?}"));
+        assert_eq!(
+            code,
+            DeepPoolError::UnsupportedMintExtension as u32 + 6000,
+            "{which}: wrong error"
+        );
+    }
 }

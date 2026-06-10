@@ -166,10 +166,12 @@ pub(crate) fn handler(ctx: Context<CreatePool>, args: CreatePoolArgs) -> Result<
         DeepPoolError::InsufficientInitialTokens
     );
 
-    // 0. Reject mints with extensions DeepPool can't safely route around
-    //    (transfer hooks, permanent delegates, confidential transfers,
-    //    interest-bearing, close authority, etc). Allowlist-based; new
-    //    spl-token-2022 extensions are rejected until reviewed.
+    // 0. Reject mints carrying a BLOCKLISTED extension (transfer hooks,
+    //    permanent delegates, interest-bearing, close authority, …). This is a
+    //    blocklist, NOT an allowlist: unknown/future extensions are ACCEPTED —
+    //    deliberate for an immutable-by-design program, so benign new
+    //    metadata/display extensions don't get permanently locked out (see
+    //    extension_is_blocked + audit v5.0.0 rationale).
     validate_mint_extensions(&ctx.accounts.token_mint.to_account_info())?;
 
     // 1. Transfer tokens from creator to vault (measure net for Token-2022 fee)

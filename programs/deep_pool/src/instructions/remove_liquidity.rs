@@ -94,10 +94,13 @@ pub(crate) fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) 
         DeepPoolError::TokenOutputSlippage
     );
 
-    // 3. Ensure pool retains the protocol-minimum reserves after removal.
-    //    Locked LP (20% creator + 7.5% per add) makes a full drain impossible
-    //    in practice, but this check enforces the floor cleanly + matches the
-    //    semantic of the `MinimumLiquidityRequired` error.
+    // 3. Retention floor: a removal may not take the pool below the dust
+    //    backstop. The REAL floor is the locked LP (20% creator + 7.5% per
+    //    add) — at the 5-SOL creation minimum the born locked floor is 1 SOL,
+    //    so this check is dead defense-in-depth until a >90% price decline
+    //    (where it blocks only the last ~0.1 SOL of exits and keeps the pool
+    //    alive). Split from MIN_INITIAL_* on purpose: sharing the creation
+    //    minimums here froze ALL LP in born-minimum pools.
     let sol_remaining = sol_reserve
         .checked_sub(sol_out)
         .ok_or(DeepPoolError::MathOverflow)?;
@@ -105,7 +108,7 @@ pub(crate) fn handler(ctx: Context<RemoveLiquidity>, args: RemoveLiquidityArgs) 
         .checked_sub(tokens_out)
         .ok_or(DeepPoolError::MathOverflow)?;
     require!(
-        sol_remaining >= MIN_INITIAL_SOL && tokens_remaining >= MIN_INITIAL_TOKENS,
+        sol_remaining >= MIN_POOL_RESERVE_SOL && tokens_remaining >= MIN_POOL_RESERVE_TOKENS,
         DeepPoolError::MinimumLiquidityRequired
     );
 

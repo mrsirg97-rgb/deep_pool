@@ -58,6 +58,9 @@ fn deep_pool_so() -> Vec<u8> {
 pub struct Env {
     pub svm: LiteSVM,
     pub payer: Keypair,
+    // Metadata of the last successful tx — event tests decode emit_cpi!
+    // payloads out of its inner instructions (see extract_event).
+    pub last_meta: Option<litesvm::types::TransactionMetadata>,
 }
 
 impl Env {
@@ -68,7 +71,7 @@ impl Env {
         let payer = Keypair::new();
         svm.airdrop(&payer.pubkey(), 1000 * LAMPORTS_PER_SOL)
             .unwrap();
-        Env { svm, payer }
+        Env { svm, payer, last_meta: None }
     }
 
     pub fn latest_blockhash(&self) -> Hash {
@@ -88,7 +91,11 @@ impl Env {
         let mut tx = Transaction::new_with_payer(ixs, Some(&payer));
         tx.sign(signers, self.latest_blockhash());
         match self.svm.send_transaction(tx) {
-            Ok(meta) => Ok(meta.compute_units_consumed),
+            Ok(meta) => {
+                let cu = meta.compute_units_consumed;
+                self.last_meta = Some(meta);
+                Ok(cu)
+            }
             Err(failed) => {
                 if std::env::var("LITESVM_LOGS").is_ok() {
                     eprintln!("--- tx failed: {:?} ---", failed.err);
@@ -114,7 +121,10 @@ impl Env {
         let mut tx = Transaction::new_with_payer(ixs, Some(&payer));
         tx.sign(signers, self.latest_blockhash());
         match self.svm.send_transaction(tx) {
-            Ok(_) => Ok(()),
+            Ok(meta) => {
+                self.last_meta = Some(meta);
+                Ok(())
+            }
             Err(failed) => {
                 if std::env::var("LITESVM_LOGS").is_ok() {
                     eprintln!("--- tx failed: {:?} ---", failed.err);
@@ -247,6 +257,103 @@ pub fn create_mint_with_close_authority(env: &mut Env, decimals: u8) -> (Pubkey,
     (mint.pubkey(), authority)
 }
 
+/// Decode the first emitted event of type `T` from a transaction's inner
+/// instructions. emit_cpi! payloads ride a self-CPI whose data is
+/// `[8-byte event-ix tag | 8-byte event discriminator | borsh payload]` —
+/// part of consensus state, never truncated (docs/events.md). This is the
+/// same decode path the indexer uses, so asserting on it pins the indexer's
+/// input contract.
+pub fn extract_event<T: anchor_lang::Discriminator + anchor_lang::AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> Option<T> {
+    for group in &meta.inner_instructions {
+        for inner in group {
+            let data: &[u8] = &inner.instruction.data;
+            if data.len() >= 16 && &data[8..16] == T::DISCRIMINATOR {
+                if let Ok(ev) = T::deserialize(&mut &data[16..]) {
+                    return Some(ev);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Create a Token-2022 mint carrying one BLOCKLISTED extension — used to
+/// exercise every arm of create_pool's extension blocklist. `which` is the
+/// extension name (see match below).
+pub fn create_mint_with_blocked_extension(
+    env: &mut Env,
+    which: &str,
+    decimals: u8,
+) -> (Pubkey, Keypair) {
+    use spl_token_2022::{
+        extension::ExtensionType, instruction as token_ix, state::Mint,
+    };
+
+    let mint = Keypair::new();
+    let authority = env.new_funded(LAMPORTS_PER_SOL);
+    let auth = authority.pubkey();
+    let tp = TOKEN_2022_PROGRAM_ID;
+    let m = mint.pubkey();
+
+    let (ext, init_ix) = match which {
+        "transfer_hook" => (
+            ExtensionType::TransferHook,
+            spl_token_2022::extension::transfer_hook::instruction::initialize(
+                &tp, &m, Some(auth), None,
+            )
+            .unwrap(),
+        ),
+        "permanent_delegate" => (
+            ExtensionType::PermanentDelegate,
+            token_ix::initialize_permanent_delegate(&tp, &m, &auth).unwrap(),
+        ),
+        "interest_bearing" => (
+            ExtensionType::InterestBearingConfig,
+            spl_token_2022::extension::interest_bearing_mint::instruction::initialize(
+                &tp, &m, Some(auth), 100,
+            )
+            .unwrap(),
+        ),
+        "non_transferable" => (
+            ExtensionType::NonTransferable,
+            token_ix::initialize_non_transferable_mint(&tp, &m).unwrap(),
+        ),
+        "default_account_state" => (
+            ExtensionType::DefaultAccountState,
+            spl_token_2022::extension::default_account_state::instruction::initialize_default_account_state(
+                &tp,
+                &m,
+                &spl_token_2022::state::AccountState::Frozen,
+            )
+            .unwrap(),
+        ),
+        "pausable" => (
+            ExtensionType::Pausable,
+            spl_token_2022::extension::pausable::instruction::initialize(&tp, &m, &auth)
+                .unwrap(),
+        ),
+        other => panic!("unknown blocked extension fixture: {other}"),
+    };
+
+    let space = ExtensionType::try_calculate_account_len::<Mint>(&[ext]).unwrap();
+    let rent = env.svm.minimum_balance_for_rent_exemption(space);
+    let create = system_instruction::create_account(
+        &env.payer.pubkey(),
+        &m,
+        rent,
+        space as u64,
+        &tp,
+    );
+    let init_mint = token_ix::initialize_mint2(&tp, &m, &auth, Some(&auth), decimals).unwrap();
+
+    let payer = clone_keypair(&env.payer);
+    env.send(&[create, init_ix, init_mint], &[&payer, &mint])
+        .expect("create_mint_with_blocked_extension failed");
+    (m, authority)
+}
+
 /// Create the recipient's ATA for `mint` and mint `amount` raw tokens to it.
 pub fn mint_to_user(
     env: &mut Env,
@@ -277,6 +384,23 @@ pub fn mint_to_user(
     let authority = clone_keypair(mint_authority);
     env.send(&[create_ata, mint_to], &[&payer, &authority])
         .expect("mint_to_user failed");
+    ata
+}
+
+/// Create only the recipient's ATA (no minting). Needed for mints whose
+/// DefaultAccountState initializes accounts FROZEN — mint_to would fail, but
+/// create_pool must still resolve the creator's token account so the
+/// extension blocklist (which runs first in the handler) gets exercised.
+pub fn create_user_ata(env: &mut Env, mint: &Pubkey, recipient: &Keypair) -> Pubkey {
+    let ata = derive_ata(&recipient.pubkey(), mint, &TOKEN_2022_PROGRAM_ID);
+    let create_ata = build_create_ata_idempotent_ix(
+        &env.payer.pubkey(),
+        &recipient.pubkey(),
+        mint,
+        &TOKEN_2022_PROGRAM_ID,
+    );
+    let payer = clone_keypair(&env.payer);
+    env.send(&[create_ata], &[&payer]).expect("create_user_ata failed");
     ata
 }
 

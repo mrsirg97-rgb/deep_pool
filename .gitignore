@@ -10,3 +10,4 @@ test-ledger
 keys
 .next
 .env
+sessions

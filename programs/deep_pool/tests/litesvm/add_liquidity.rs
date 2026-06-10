@@ -13,9 +13,10 @@ use deep_pool::error::DeepPoolError;
 
 fn migrated_pool(env: &mut Env, fee_bps: u16) -> (PoolCtx, Keypair, Pubkey) {
     let (mint, authority) = create_mint(env, fee_bps, 6);
-    let creator = env.new_funded(10 * LAMPORTS_PER_SOL);
+    let creator = env.new_funded(20 * LAMPORTS_PER_SOL);
     mint_to_user(env, &mint, &authority, &creator, 10_000_000_000_000);
-    let p = create_pool(env, &creator, &mint, 1_000_000_000, 1 * LAMPORTS_PER_SOL)
+    // 10 SOL — above the 5-SOL creation minimum (P-1).
+    let p = create_pool(env, &creator, &mint, 1_000_000_000, 10 * LAMPORTS_PER_SOL)
         .expect("create_pool");
     (p, authority, mint)
 }
@@ -25,7 +26,7 @@ fn happy_path_no_fee() {
     let mut env = Env::new();
     let (p, authority, mint) = migrated_pool(&mut env, 0);
 
-    let provider = env.new_funded(5 * LAMPORTS_PER_SOL);
+    let provider = env.new_funded(12 * LAMPORTS_PER_SOL);
     mint_to_user(&mut env, &mint, &authority, &provider, 1_000_000_000_000);
 
     let pool_before = get_pool(&env, &p.pool);
@@ -35,8 +36,8 @@ fn happy_path_no_fee() {
         &mut env,
         &provider,
         &p,
-        500_000_000, // 500k tokens (proportional half of pool's 1M tokens)
-        2 * LAMPORTS_PER_SOL,
+        500_000_000, // 500k tokens (proportional half of pool's 1M tokens → ~5 SOL)
+        6 * LAMPORTS_PER_SOL,
         1, // min_lp_out
     )
     .expect("add_liquidity");
@@ -71,7 +72,7 @@ fn sol_paid_matches_net_tokens_under_transfer_fee() {
     let mut env = Env::new();
     let (p, authority, mint) = migrated_pool(&mut env, 100); // 1% fee
 
-    let provider = env.new_funded(5 * LAMPORTS_PER_SOL);
+    let provider = env.new_funded(12 * LAMPORTS_PER_SOL);
     mint_to_user(&mut env, &mint, &authority, &provider, 1_000_000_000_000);
 
     let token_reserve_before = get_token_amount(&env, &p.token_vault);
@@ -84,7 +85,7 @@ fn sol_paid_matches_net_tokens_under_transfer_fee() {
         &provider,
         &p,
         gross_token_amount,
-        2 * LAMPORTS_PER_SOL,
+        6 * LAMPORTS_PER_SOL,
         1,
     )
     .expect("add_liquidity");
